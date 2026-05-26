@@ -1523,3 +1523,777 @@ function OfflineTab({ openaiApiKey }) {
   // ... rest of component
 }
 
+
+
+
+xxxxx
+
+// Tab2Pricing.jsx - Complete working version
+
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import {
+  Box, Grid, TextField, MenuItem, Button, Typography,
+  CircularProgress, Alert, Paper, Tabs, Tab, TableContainer,
+  Table, TableHead, TableBody, TableRow, TableCell, Checkbox,
+  Tooltip, IconButton, Card, CardContent
+} from '@mui/material';
+import FileDownloadIcon from '@mui/icons-material/FileDownload';
+import { DataGrid } from '@mui/x-data-grid';
+import { comparePrices } from '../../../api/client';
+import useAppStore from '../../../store/appStore';
+import MetricCard from '../../shared/MetricCard';
+import Plot from 'react-plotly.js';
+
+// ============================================================
+// CONSTANTS
+// ============================================================
+
+const OS_TYPES = ['Linux', 'Windows'];
+const PRICING_MODELS = ['On-Demand', 'Reserved 1 Year', 'Reserved 3 Year', 'Spot'];
+
+const fmt = (n) => `$${Number(n || 0).toFixed(2)}`;
+
+// ============================================================
+// BIDIRECTIONAL INSTANCE MAPPING (Complete)
+// ============================================================
+
+const INSTANCE_MAPPING = {
+  // AWS → Others
+  AWS: {
+    Azure: {
+      't3.micro': 'B1s', 't3.small': 'B1ms', 't3.medium': 'B2s', 't3.large': 'B2ms',
+      't3.xlarge': 'B4ms', 't3.2xlarge': 'B8ms',
+      'm5.large': 'D2s_v3', 'm5.xlarge': 'D4s_v3', 'm5.2xlarge': 'D8s_v3',
+      'm5.4xlarge': 'D16s_v3', 'm5.8xlarge': 'D32s_v3',
+      'c5.large': 'F2s_v2', 'c5.xlarge': 'F4s_v2', 'c5.2xlarge': 'F8s_v2',
+      'c5.4xlarge': 'F16s_v2', 'c5.8xlarge': 'F32s_v2',
+      'r5.large': 'E2s_v3', 'r5.xlarge': 'E4s_v3', 'r5.2xlarge': 'E8s_v3',
+      'r5.4xlarge': 'E16s_v3', 'r5.8xlarge': 'E32s_v3',
+    },
+    GCP: {
+      't3.micro': 'e2-micro', 't3.small': 'e2-small', 't3.medium': 'e2-standard-2', 't3.large': 'e2-standard-4',
+      't3.xlarge': 'e2-standard-8', 't3.2xlarge': 'e2-standard-16',
+      'm5.large': 'n2-standard-2', 'm5.xlarge': 'n2-standard-4', 'm5.2xlarge': 'n2-standard-8',
+      'm5.4xlarge': 'n2-standard-16', 'm5.8xlarge': 'n2-standard-32',
+      'c5.large': 'c2-standard-4', 'c5.xlarge': 'c2-standard-8', 'c5.2xlarge': 'c2-standard-16',
+      'c5.4xlarge': 'c2-standard-30', 'c5.8xlarge': 'c2-standard-60',
+      'r5.large': 'n2-highmem-2', 'r5.xlarge': 'n2-highmem-4', 'r5.2xlarge': 'n2-highmem-8',
+      'r5.4xlarge': 'n2-highmem-16', 'r5.8xlarge': 'n2-highmem-32',
+    },
+  },
+  // Azure → Others
+  Azure: {
+    AWS: {
+      'B1s': 't3.micro', 'B1ms': 't3.small', 'B2s': 't3.medium', 'B2ms': 't3.large',
+      'B4ms': 't3.xlarge', 'B8ms': 't3.2xlarge',
+      'D2s_v3': 'm5.large', 'D4s_v3': 'm5.xlarge', 'D8s_v3': 'm5.2xlarge',
+      'D16s_v3': 'm5.4xlarge', 'D32s_v3': 'm5.8xlarge',
+      'F2s_v2': 'c5.large', 'F4s_v2': 'c5.xlarge', 'F8s_v2': 'c5.2xlarge',
+      'F16s_v2': 'c5.4xlarge', 'F32s_v2': 'c5.8xlarge',
+      'E2s_v3': 'r5.large', 'E4s_v3': 'r5.xlarge', 'E8s_v3': 'r5.2xlarge',
+      'E16s_v3': 'r5.4xlarge', 'E32s_v3': 'r5.8xlarge',
+    },
+    GCP: {
+      'B1s': 'e2-micro', 'B1ms': 'e2-small', 'B2s': 'e2-standard-2', 'B2ms': 'e2-standard-4',
+      'B4ms': 'e2-standard-8', 'B8ms': 'e2-standard-16',
+      'D2s_v3': 'n2-standard-2', 'D4s_v3': 'n2-standard-4', 'D8s_v3': 'n2-standard-8',
+      'D16s_v3': 'n2-standard-16', 'D32s_v3': 'n2-standard-32',
+      'F2s_v2': 'c2-standard-4', 'F4s_v2': 'c2-standard-8', 'F8s_v2': 'c2-standard-16',
+      'F16s_v2': 'c2-standard-30', 'F32s_v2': 'c2-standard-60',
+      'E2s_v3': 'n2-highmem-2', 'E4s_v3': 'n2-highmem-4', 'E8s_v3': 'n2-highmem-8',
+      'E16s_v3': 'n2-highmem-16', 'E32s_v3': 'n2-highmem-32',
+    },
+  },
+  // GCP → Others
+  GCP: {
+    AWS: {
+      'e2-micro': 't3.micro', 'e2-small': 't3.small', 'e2-standard-2': 't3.medium', 'e2-standard-4': 't3.large',
+      'e2-standard-8': 't3.xlarge', 'e2-standard-16': 't3.2xlarge',
+      'n2-standard-2': 'm5.large', 'n2-standard-4': 'm5.xlarge', 'n2-standard-8': 'm5.2xlarge',
+      'n2-standard-16': 'm5.4xlarge', 'n2-standard-32': 'm5.8xlarge',
+      'c2-standard-4': 'c5.large', 'c2-standard-8': 'c5.xlarge', 'c2-standard-16': 'c5.2xlarge',
+      'c2-standard-30': 'c5.4xlarge', 'c2-standard-60': 'c5.8xlarge',
+      'n2-highmem-2': 'r5.large', 'n2-highmem-4': 'r5.xlarge', 'n2-highmem-8': 'r5.2xlarge',
+      'n2-highmem-16': 'r5.4xlarge', 'n2-highmem-32': 'r5.8xlarge',
+    },
+    Azure: {
+      'e2-micro': 'B1s', 'e2-small': 'B1ms', 'e2-standard-2': 'B2s', 'e2-standard-4': 'B2ms',
+      'e2-standard-8': 'B4ms', 'e2-standard-16': 'B8ms',
+      'n2-standard-2': 'D2s_v3', 'n2-standard-4': 'D4s_v3', 'n2-standard-8': 'D8s_v3',
+      'n2-standard-16': 'D16s_v3', 'n2-standard-32': 'D32s_v3',
+      'c2-standard-4': 'F2s_v2', 'c2-standard-8': 'F4s_v2', 'c2-standard-16': 'F8s_v2',
+      'c2-standard-30': 'F16s_v2', 'c2-standard-60': 'F32s_v2',
+      'n2-highmem-2': 'E2s_v3', 'n2-highmem-4': 'E4s_v3', 'n2-highmem-8': 'E8s_v3',
+      'n2-highmem-16': 'E16s_v3', 'n2-highmem-32': 'E32s_v3',
+    },
+  },
+};
+
+// ============================================================
+// INSTANCE FAMILIES
+// ============================================================
+
+const AWS_BY_FAMILY = {
+  'General Purpose': ['t3.micro', 't3.small', 't3.medium', 't3.large', 't3.xlarge', 't3.2xlarge', 'm5.large', 'm5.xlarge', 'm5.2xlarge', 'm5.4xlarge', 'm5.8xlarge'],
+  'Compute Optimized': ['c5.large', 'c5.xlarge', 'c5.2xlarge', 'c5.4xlarge', 'c5.8xlarge'],
+  'Memory Optimized': ['r5.large', 'r5.xlarge', 'r5.2xlarge', 'r5.4xlarge', 'r5.8xlarge'],
+};
+
+const AZURE_BY_FAMILY = {
+  'General Purpose': ['B1s', 'B1ms', 'B2s', 'B2ms', 'B4ms', 'B8ms', 'D2s_v3', 'D4s_v3', 'D8s_v3', 'D16s_v3', 'D32s_v3'],
+  'Compute Optimized': ['F2s_v2', 'F4s_v2', 'F8s_v2', 'F16s_v2', 'F32s_v2'],
+  'Memory Optimized': ['E2s_v3', 'E4s_v3', 'E8s_v3', 'E16s_v3', 'E32s_v3'],
+};
+
+const GCP_BY_FAMILY = {
+  'General Purpose': ['e2-micro', 'e2-small', 'e2-standard-2', 'e2-standard-4', 'e2-standard-8', 'e2-standard-16', 'n2-standard-2', 'n2-standard-4', 'n2-standard-8', 'n2-standard-16', 'n2-standard-32'],
+  'Compute Optimized': ['c2-standard-4', 'c2-standard-8', 'c2-standard-16', 'c2-standard-30', 'c2-standard-60'],
+  'Memory Optimized': ['n2-highmem-2', 'n2-highmem-4', 'n2-highmem-8', 'n2-highmem-16', 'n2-highmem-32'],
+};
+
+const AWS_INSTANCES = [
+  't3.micro', 't3.small', 't3.medium', 't3.large', 't3.xlarge', 't3.2xlarge',
+  'm5.large', 'm5.xlarge', 'm5.2xlarge', 'm5.4xlarge', 'm5.8xlarge',
+  'c5.large', 'c5.xlarge', 'c5.2xlarge', 'c5.4xlarge', 'c5.8xlarge',
+  'r5.large', 'r5.xlarge', 'r5.2xlarge', 'r5.4xlarge', 'r5.8xlarge',
+];
+
+// ============================================================
+// REGION MAPPING
+// ============================================================
+
+const REGIONS = {
+  'US East (N. Virginia)': { AWS: 'us-east-1', Azure: 'eastus', GCP: 'us-east4' },
+  'US East (Ohio)': { AWS: 'us-east-2', Azure: 'eastus2', GCP: 'us-east1' },
+  'US West (Oregon)': { AWS: 'us-west-2', Azure: 'westus2', GCP: 'us-west1' },
+  'US West (N. California)': { AWS: 'us-west-1', Azure: 'westus', GCP: 'us-west2' },
+  'EU (Ireland)': { AWS: 'eu-west-1', Azure: 'northeurope', GCP: 'europe-west1' },
+  'EU (Frankfurt)': { AWS: 'eu-central-1', Azure: 'westeurope', GCP: 'europe-west3' },
+  'EU (London)': { AWS: 'eu-west-2', Azure: 'uksouth', GCP: 'europe-west2' },
+  'Asia Pacific (Singapore)': { AWS: 'ap-southeast-1', Azure: 'southeastasia', GCP: 'asia-southeast1' },
+  'Asia Pacific (Tokyo)': { AWS: 'ap-northeast-1', Azure: 'japaneast', GCP: 'asia-northeast1' },
+  'Asia Pacific (Mumbai)': { AWS: 'ap-south-1', Azure: 'centralindia', GCP: 'asia-south1' },
+  'South America (Sao Paulo)': { AWS: 'sa-east-1', Azure: 'brazilsouth', GCP: 'southamerica-east1' },
+  'Australia (Sydney)': { AWS: 'ap-southeast-2', Azure: 'australiaeast', GCP: 'australia-southeast1' },
+};
+
+// ============================================================
+// HELPER FUNCTIONS
+// ============================================================
+
+const getMappedInstance = (referenceProvider, targetProvider, instanceType) => {
+  const mapping = INSTANCE_MAPPING[referenceProvider]?.[targetProvider];
+  if (!mapping) return instanceType;
+  const mapped = mapping[instanceType];
+  return mapped || instanceType;
+};
+
+const getRegionForProvider = (unifiedRegion, provider) => {
+  const regionMap = REGIONS[unifiedRegion];
+  if (!regionMap) return provider === 'AWS' ? 'us-east-1' : provider === 'Azure' ? 'eastus' : 'us-central1';
+  return regionMap[provider] || (provider === 'AWS' ? 'us-east-1' : provider === 'Azure' ? 'eastus' : 'us-central1');
+};
+
+const getAvailableRegionsForProvider = (provider) => {
+  return Object.keys(REGIONS).filter(unifiedName => REGIONS[unifiedName][provider]);
+};
+
+const parsePricingRow = (val, key, fallback = {}) => {
+  try {
+    const d = typeof val === 'string' ? JSON.parse(val) : val;
+    if (!d || d.error) return null;
+    return {
+      provider: String(d?.provider || key).toUpperCase().replace('GCLOUD', 'GCP'),
+      instance_type: d?.instance_type || fallback.instance,
+      vcpu: d?.vcpu ?? d?.vCPU ?? 'N/A',
+      ram: d?.ram ?? d?.['RAM (GB)'] ?? 'N/A',
+      monthly_rate: d?.monthly_rate ?? d?.monthly ?? null,
+      hourly_rate: d?.hourly_rate ?? d?.hourly ?? null,
+      annual_rate: d?.annual_rate ?? (d?.monthly_rate ? d.monthly_rate * 12 : null),
+      family: d?.family ?? 'N/A',
+      region: d?.region ?? fallback.region,
+      pricing_model: d?.pricing_model ?? fallback.pricingModel,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const downloadCSV = (rows, filename = 'pricing_comparison.csv') => {
+  if (!rows?.length) return;
+  const providers = [...new Set(rows.map(r => r.provider))];
+  let csv = 'Instance Type,' + providers.map(p => `${p} (Monthly)`).join(',') + '\n';
+  const instances = [...new Set(rows.map(r => r.instance_type))];
+  instances.forEach(inst => {
+    const row = [inst];
+    providers.forEach(provider => {
+      const pricing = rows.find(r => r.instance_type === inst && r.provider === provider);
+      row.push(pricing ? fmt(pricing.monthly_rate || 0) : 'N/A');
+    });
+    csv += row.join(',') + '\n';
+  });
+  const element = document.createElement('a');
+  element.setAttribute('href', `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`);
+  element.setAttribute('download', filename);
+  document.body.appendChild(element);
+  element.click();
+  document.body.removeChild(element);
+};
+
+// ============================================================
+// LIVE API TAB
+// ============================================================
+function LiveApiTab({ openaiApiKey }) {
+  const [referenceProvider, setReferenceProvider] = useState('AWS');
+  const [family, setFamily] = useState('General Purpose');
+  const [instance, setInstance] = useState('t3.medium');
+  const [regionLabel, setRegionLabel] = useState('US East (N. Virginia)');
+  const [osType, setOsType] = useState('Linux');
+  const [pricingModel, setPricingModel] = useState('On-Demand');
+  const [quantity, setQuantity] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState(null);
+  const [error, setError] = useState('');
+
+  const availableFamilies = useMemo(() => {
+    switch (referenceProvider) {
+      case 'AWS': return Object.keys(AWS_BY_FAMILY);
+      case 'Azure': return Object.keys(AZURE_BY_FAMILY);
+      case 'GCP': return Object.keys(GCP_BY_FAMILY);
+      default: return Object.keys(AWS_BY_FAMILY);
+    }
+  }, [referenceProvider]);
+
+  const availableInstances = useMemo(() => {
+    switch (referenceProvider) {
+      case 'AWS': return AWS_BY_FAMILY[family] || [];
+      case 'Azure': return AZURE_BY_FAMILY[family] || [];
+      case 'GCP': return GCP_BY_FAMILY[family] || [];
+      default: return AWS_BY_FAMILY[family] || [];
+    }
+  }, [referenceProvider, family]);
+
+  const availableRegions = useMemo(() => getAvailableRegionsForProvider(referenceProvider), [referenceProvider]);
+
+  useEffect(() => {
+    if (availableInstances.length > 0 && !availableInstances.includes(instance)) {
+      setInstance(availableInstances[0]);
+    }
+  }, [availableInstances, instance]);
+
+  useEffect(() => {
+    if (!availableRegions.includes(regionLabel) && availableRegions.length > 0) {
+      setRegionLabel(availableRegions[0]);
+    }
+  }, [referenceProvider, availableRegions, regionLabel]);
+
+  const handleCompare = async () => {
+    setLoading(true);
+    setError('');
+    setResults(null);
+    try {
+      const targetProviders = ['AWS', 'Azure', 'GCP'];
+      const resultsMap = {};
+      
+      for (const targetProvider of targetProviders) {
+        try {
+          const mappedInstance = getMappedInstance(referenceProvider, targetProvider, instance);
+          const regionString = getRegionForProvider(regionLabel, targetProvider);
+          const pricingModelForProvider = targetProvider === 'GCP' ? 'Committed' : pricingModel;
+          
+          const { data } = await comparePrices({
+            resource_type: 'ec2',
+            specifications: {
+              instance_type: mappedInstance,
+              os: osType,
+              reference_provider: targetProvider,
+            },
+            regions: [regionString],
+            pricing_model: pricingModelForProvider,
+          }, openaiApiKey);
+          
+          if (data && Object.keys(data).length > 0) {
+            resultsMap[targetProvider] = data;
+          }
+        } catch (err) {
+          console.warn(`Error fetching ${targetProvider}:`, err);
+        }
+      }
+      
+      if (Object.keys(resultsMap).length === 0) {
+        setError('Failed to fetch prices from all providers. Please try again.');
+      } else {
+        setResults(resultsMap);
+      }
+    } catch (e) {
+      setError(e?.response?.data?.detail || e?.message || 'Failed to fetch prices');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const rows = useMemo(() => {
+    if (!results) return [];
+    const parsedRows = [];
+    let id = 0;
+    
+    Object.entries(results).forEach(([providerKey, providerData]) => {
+      Object.entries(providerData).forEach(([key, val]) => {
+        if (key.startsWith('_')) return;
+        const parsed = parsePricingRow(val, key, { instance, region: regionLabel, pricingModel });
+        if (parsed && parsed.monthly_rate != null) {
+          parsedRows.push({
+            id: id++,
+            provider: providerKey,
+            ...parsed,
+            annual_rate: parsed.annual_rate ?? parsed.monthly_rate * 12,
+          });
+        }
+      });
+    });
+    
+    return parsedRows;
+  }, [results, instance, regionLabel, pricingModel]);
+
+  const recommendations = useMemo(() => {
+    if (rows.length === 0) return {};
+    const cheapest = rows.reduce((a, b) => a.monthly_rate < b.monthly_rate ? a : b);
+    const mostExpensive = rows.reduce((a, b) => a.monthly_rate > b.monthly_rate ? a : b);
+    const bestPerf = rows.reduce((best, curr) => {
+      const currValue = curr.monthly_rate ? (parseInt(curr.vcpu) || 1) / curr.monthly_rate : 0;
+      const bestValue = best.monthly_rate ? (parseInt(best.vcpu) || 1) / best.monthly_rate : 0;
+      return currValue > bestValue ? curr : best;
+    });
+    return { cheapest, bestPerf, savings: (mostExpensive.monthly_rate - cheapest.monthly_rate) * 12 };
+  }, [rows]);
+
+  const barData = rows.length ? [{
+    type: 'bar',
+    x: rows.map(r => r.provider),
+    y: rows.map(r => r.monthly_rate * quantity),
+    text: rows.map(r => fmt(r.monthly_rate * quantity)),
+    textposition: 'outside',
+    marker: { color: rows.map(r => r.provider === recommendations.cheapest?.provider ? '#4caf50' : '#2196f3') },
+  }] : [];
+
+  const columns = [
+    { field: 'provider', headerName: 'Provider', width: 80 },
+    { field: 'instance_type', headerName: 'Instance', width: 100 },
+    { field: 'vcpu', headerName: 'vCPU', width: 70 },
+    { field: 'ram', headerName: 'RAM (GB)', width: 80 },
+    { field: 'pricing_model', headerName: 'Model', width: 110 },
+    { field: 'monthly_rate', headerName: 'Monthly', width: 100, valueFormatter: ({ value }) => fmt(value) },
+  ];
+
+  return (
+    <Box sx={{ width: '100%' }}>
+      <Alert severity="info" sx={{ mb: 2, fontSize: '0.85rem' }}>
+        🌐 <strong>Live API Prices</strong> — Real-time pricing from cloud providers
+      </Alert>
+
+      <Paper sx={{ p: 2, mb: 2, backgroundColor: '#fafafa' }}>
+        <Grid container spacing={1.5} alignItems="flex-end">
+          <Grid item xs={12} sm={6} md={2}>
+            <TextField select size="small" fullWidth label="Provider" value={referenceProvider} onChange={(e) => setReferenceProvider(e.target.value)}>
+              {['AWS', 'Azure', 'GCP'].map(p => <MenuItem key={p} value={p}>{p}</MenuItem>)}
+            </TextField>
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <TextField select size="small" fullWidth label="Family" value={family} onChange={(e) => setFamily(e.target.value)}>
+              {availableFamilies.map(f => <MenuItem key={f} value={f}>{f}</MenuItem>)}
+            </TextField>
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <TextField select size="small" fullWidth label="Instance" value={instance} onChange={(e) => setInstance(e.target.value)}>
+              {availableInstances.map(i => <MenuItem key={i} value={i}>{i}</MenuItem>)}
+            </TextField>
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <TextField select size="small" fullWidth label="Region" value={regionLabel} onChange={(e) => setRegionLabel(e.target.value)}>
+              {availableRegions.map(r => <MenuItem key={r} value={r}>{r}</MenuItem>)}
+            </TextField>
+          </Grid>
+          <Grid item xs={12} sm={6} md={1.5}>
+            <TextField select size="small" fullWidth label="OS" value={osType} onChange={(e) => setOsType(e.target.value)}>
+              {OS_TYPES.map(os => <MenuItem key={os} value={os}>{os}</MenuItem>)}
+            </TextField>
+          </Grid>
+          <Grid item xs={12} sm={6} md={1.5}>
+            <TextField select size="small" fullWidth label="Model" value={pricingModel} onChange={(e) => setPricingModel(e.target.value)}>
+              {PRICING_MODELS.map(pm => <MenuItem key={pm} value={pm}>{pm}</MenuItem>)}
+            </TextField>
+          </Grid>
+          <Grid item xs={12} sm={6} md={0.5}>
+            <TextField type="number" size="small" fullWidth label="Qty" value={quantity} onChange={(e) => setQuantity(parseInt(e.target.value) || 1)} />
+          </Grid>
+          <Grid item xs={12} md={1}>
+            <Button variant="contained" fullWidth onClick={handleCompare} disabled={loading} startIcon={loading ? <CircularProgress size={16} /> : null}>
+              {loading ? 'Fetching...' : 'Compare'}
+            </Button>
+          </Grid>
+        </Grid>
+      </Paper>
+
+      {instance && (
+        <Alert severity="info" sx={{ mb: 2, fontSize: '0.7rem' }}>
+          🔄 Instance: {referenceProvider} {instance} → AWS: {getMappedInstance(referenceProvider, 'AWS', instance)} | 
+          Azure: {getMappedInstance(referenceProvider, 'Azure', instance)} | 
+          GCP: {getMappedInstance(referenceProvider, 'GCP', instance)}
+        </Alert>
+      )}
+
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+      {rows.length > 0 && (
+        <>
+          <Grid container spacing={1.5} mb={2}>
+            <Grid item xs={12} sm={6} md={3}>
+              <Paper sx={{ p: 1.5, bgcolor: '#c8e6c9' }}>
+                <Typography variant="caption" color="#1b5e20">💚 Best for Cost</Typography>
+                <Typography variant="body2" fontWeight="bold">{recommendations.cheapest?.provider} {fmt(recommendations.cheapest?.monthly_rate)}/mo</Typography>
+              </Paper>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Paper sx={{ p: 1.5, bgcolor: '#ffe0b2' }}>
+                <Typography variant="caption" color="#e65100">⚡ Best Performance Value</Typography>
+                <Typography variant="body2" fontWeight="bold">{recommendations.bestPerf?.provider}</Typography>
+              </Paper>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <MetricCard label="Monthly Savings" value={fmt(recommendations.savings || 0)} color="info" />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Paper sx={{ p: 1.5, bgcolor: '#bbdefb' }}>
+                <Typography variant="caption" color="#01579b">📊 Annual Savings</Typography>
+                <Typography variant="body2" fontWeight="bold">{fmt(recommendations.savings || 0)}/year</Typography>
+              </Paper>
+            </Grid>
+          </Grid>
+
+          <Grid container spacing={2} mb={2}>
+            <Grid item xs={12} md={6}>
+              <Paper sx={{ p: 1.5 }}>
+                <Plot data={barData} layout={{ title: `Monthly Cost Comparison (x${quantity})`, height: 350 }} config={{ displayModeBar: false }} style={{ width: '100%' }} />
+              </Paper>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Paper sx={{ p: 1.5 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography variant="subtitle2" fontWeight="bold">📊 Price Summary</Typography>
+                  <Button size="small" startIcon={<FileDownloadIcon />} onClick={() => downloadCSV(rows)}>CSV</Button>
+                </Box>
+                <TableContainer sx={{ maxHeight: 300 }}>
+                  <Table size="small">
+                    <TableHead sx={{ bgcolor: '#1976d2' }}>
+                      <TableRow>
+                        <TableCell sx={{ color: '#fff' }}>Provider</TableCell>
+                        <TableCell sx={{ color: '#fff' }}>Instance</TableCell>
+                        <TableCell align="right" sx={{ color: '#fff' }}>Monthly</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {rows.map(row => (
+                        <TableRow key={row.id} sx={{ bgcolor: row.provider === recommendations.cheapest?.provider ? '#e8f5e9' : 'inherit' }}>
+                          <TableCell sx={{ fontWeight: 'bold' }}>{row.provider}</TableCell>
+                          <TableCell>{row.instance_type}</TableCell>
+                          <TableCell align="right" sx={{ color: row.provider === recommendations.cheapest?.provider ? '#4caf50' : '#000', fontWeight: 'bold' }}>
+                            {fmt(row.monthly_rate)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Paper>
+            </Grid>
+          </Grid>
+
+          <Paper sx={{ p: 1.5 }}>
+            <Typography variant="subtitle2" fontWeight="bold" mb={1}>📋 Detailed Pricing</Typography>
+            <Box sx={{ height: 350 }}>
+              <DataGrid rows={rows} columns={columns} autoHeight={false} disableSelectionOnClick sx={{ fontSize: '0.75rem' }} />
+            </Box>
+          </Paper>
+        </>
+      )}
+    </Box>
+  );
+}
+
+// ============================================================
+// OFFLINE TAB
+// ============================================================
+function OfflineTab({ openaiApiKey }) {
+  const [region, setRegion] = useState('US East (N. Virginia)');
+  const [osType, setOsType] = useState('Linux');
+  const [pricingModel, setPricingModel] = useState('On-Demand');
+  const [quantity, setQuantity] = useState(1);
+  const [instance, setInstance] = useState('t3.medium');
+  const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState(null);
+  const [error, setError] = useState('');
+
+  const handleFetch = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const regionString = getRegionForProvider(region, 'AWS');
+      const { data } = await comparePrices({
+        resource_type: 'ec2',
+        specifications: { instance_type: instance, os: osType },
+        regions: [regionString],
+        pricing_model: pricingModel,
+        offline: true,
+      }, openaiApiKey);
+      setResults(data);
+    } catch (e) {
+      setError(e?.response?.data?.detail || e?.message || 'Failed to fetch offline prices');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const rows = results ? Object.entries(results)
+    .filter(([k]) => !k.startsWith('_'))
+    .map(([key, val], i) => {
+      const parsed = parsePricingRow(val, key, { instance });
+      if (!parsed || parsed.monthly_rate == null) return null;
+      return { id: i, ...parsed, annual_rate: parsed.annual_rate ?? parsed.monthly_rate * 12 };
+    }).filter(Boolean) : [];
+
+  const cheapest = rows.length ? rows.reduce((a, b) => a.monthly_rate < b.monthly_rate ? a : b) : null;
+  const mostExpensive = rows.length ? rows.reduce((a, b) => a.monthly_rate > b.monthly_rate ? a : b) : null;
+
+  const columns = [
+    { field: 'provider', headerName: 'Provider', width: 90 },
+    { field: 'instance_type', headerName: 'Instance', width: 100 },
+    { field: 'vcpu', headerName: 'vCPU', width: 70 },
+    { field: 'ram', headerName: 'RAM (GB)', width: 80 },
+    { field: 'monthly_rate', headerName: 'Monthly', width: 100, valueFormatter: ({ value }) => fmt(value) },
+  ];
+
+  return (
+    <Box sx={{ width: '100%' }}>
+      <Alert severity="success" sx={{ mb: 2, fontSize: '0.85rem' }}>📦 <strong>Offline Database</strong> — Pre-loaded pricing data</Alert>
+      <Paper sx={{ p: 2, mb: 2, backgroundColor: '#fafafa' }}>
+        <Grid container spacing={1.5} alignItems="flex-end">
+          <Grid item xs={12} sm={6} md={3}>
+            <TextField select size="small" fullWidth label="Instance" value={instance} onChange={(e) => setInstance(e.target.value)}>
+              {AWS_INSTANCES.map(i => <MenuItem key={i} value={i}>{i}</MenuItem>)}
+            </TextField>
+          </Grid>
+          <Grid item xs={12} sm={6} md={2.5}>
+            <TextField select size="small" fullWidth label="Region" value={region} onChange={(e) => setRegion(e.target.value)}>
+              {Object.keys(REGIONS).map(r => <MenuItem key={r} value={r}>{r}</MenuItem>)}
+            </TextField>
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <TextField select size="small" fullWidth label="OS" value={osType} onChange={(e) => setOsType(e.target.value)}>
+              {OS_TYPES.map(os => <MenuItem key={os} value={os}>{os}</MenuItem>)}
+            </TextField>
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <TextField select size="small" fullWidth label="Model" value={pricingModel} onChange={(e) => setPricingModel(e.target.value)}>
+              {PRICING_MODELS.map(pm => <MenuItem key={pm} value={pm}>{pm}</MenuItem>)}
+            </TextField>
+          </Grid>
+          <Grid item xs={12} sm={6} md={1}>
+            <TextField type="number" size="small" fullWidth label="Qty" value={quantity} onChange={(e) => setQuantity(parseInt(e.target.value) || 1)} />
+          </Grid>
+          <Grid item xs={12} md={1.5}>
+            <Button variant="contained" fullWidth onClick={handleFetch} disabled={loading} startIcon={loading ? <CircularProgress size={16} /> : null}>
+              {loading ? 'Loading...' : 'Get Prices'}
+            </Button>
+          </Grid>
+        </Grid>
+      </Paper>
+
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+      {rows.length > 0 && (
+        <>
+          <Grid container spacing={1.5} mb={2}>
+            <Grid item xs={6} sm={4} md={3}><MetricCard label="Cheapest" value={cheapest?.provider} color="success" /></Grid>
+            <Grid item xs={6} sm={4} md={3}><MetricCard label="Lowest Price" value={fmt(cheapest?.monthly_rate)} color="success" /></Grid>
+            <Grid item xs={6} sm={4} md={3}><MetricCard label="Monthly Savings" value={fmt(((mostExpensive?.monthly_rate || 0) - (cheapest?.monthly_rate || 0)))} color="info" /></Grid>
+            <Grid item xs={6} sm={4} md={3}><MetricCard label="Results Found" value={rows.length} color="info" /></Grid>
+          </Grid>
+
+          <Paper sx={{ p: 1.5 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+              <Typography variant="subtitle2" fontWeight="bold">📋 All Results ({rows.length} instances)</Typography>
+              <Button size="small" startIcon={<FileDownloadIcon />} onClick={() => downloadCSV(rows)}>CSV</Button>
+            </Box>
+            <Box sx={{ height: 450 }}>
+              <DataGrid rows={rows} columns={columns} autoHeight={false} disableSelectionOnClick sx={{ fontSize: '0.75rem' }} />
+            </Box>
+          </Paper>
+        </>
+      )}
+    </Box>
+  );
+}
+
+// ============================================================
+// GRID VIEW TAB
+// ============================================================
+function GridViewTab({ openaiApiKey }) {
+  const [region, setRegion] = useState('US East (N. Virginia)');
+  const [osType, setOsType] = useState('Linux');
+  const [pricingModel, setPricingModel] = useState('On-Demand');
+  const [loading, setLoading] = useState(false);
+  const [gridData, setGridData] = useState([]);
+  const [selectedInstances, setSelectedInstances] = useState(new Set());
+  const [error, setError] = useState('');
+  const [minVcpu, setMinVcpu] = useState(0);
+  const [maxPrice, setMaxPrice] = useState(1000);
+
+  const handleLoadGrid = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const regionString = getRegionForProvider(region, 'AWS');
+      const { data } = await comparePrices({
+        resource_type: 'ec2',
+        regions: [regionString],
+        os_type: osType,
+        pricing_model: pricingModel,
+        get_all: true,
+      }, openaiApiKey);
+
+      const instances = [];
+      Object.entries(data).forEach(([provider, providerData]) => {
+        if (providerData?.instances && Array.isArray(providerData.instances)) {
+          providerData.instances.forEach((inst, idx) => {
+            instances.push({
+              id: `${provider}_${idx}`,
+              provider: String(inst.Provider || provider).toUpperCase(),
+              instance: inst.Instance || inst.instance_type || "N/A",
+              vcpu: inst.vCPU ?? inst.vcpu ?? 0,
+              memory: inst["RAM (GB)"] ?? inst.ram ?? 0,
+              monthly: inst.Monthly ?? inst.monthly ?? 0,
+            });
+          });
+        }
+      });
+      setGridData(instances);
+    } catch (e) {
+      setError(e?.response?.data?.detail || e?.message || 'Failed to load instance data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSelectInstance = (id) => {
+    const newSet = new Set(selectedInstances);
+    if (newSet.has(id)) newSet.delete(id);
+    else newSet.add(id);
+    setSelectedInstances(newSet);
+  };
+
+  const filteredData = gridData.filter(row => row.vcpu >= minVcpu && row.monthly <= maxPrice);
+  const selectedData = gridData.filter(row => selectedInstances.has(row.id));
+
+  return (
+    <Box sx={{ width: '100%' }}>
+      <Alert severity="info" sx={{ mb: 2, fontSize: '0.85rem' }}>📊 <strong>Grid View</strong> — Browse all available instances</Alert>
+      <Paper sx={{ p: 2, mb: 2, backgroundColor: '#fafafa' }}>
+        <Grid container spacing={1.5} alignItems="flex-end">
+          <Grid item xs={12} sm={6} md={2.5}>
+            <TextField select size="small" fullWidth label="Region" value={region} onChange={(e) => setRegion(e.target.value)}>
+              {Object.keys(REGIONS).map(r => <MenuItem key={r} value={r}>{r}</MenuItem>)}
+            </TextField>
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <TextField select size="small" fullWidth label="OS" value={osType} onChange={(e) => setOsType(e.target.value)}>
+              {OS_TYPES.map(os => <MenuItem key={os} value={os}>{os}</MenuItem>)}
+            </TextField>
+          </Grid>
+          <Grid item xs={12} sm={6} md={2.5}>
+            <TextField select size="small" fullWidth label="Pricing Model" value={pricingModel} onChange={(e) => setPricingModel(e.target.value)}>
+              {PRICING_MODELS.map(pm => <MenuItem key={pm} value={pm}>{pm}</MenuItem>)}
+            </TextField>
+          </Grid>
+          <Grid item xs={12} sm={6} md={1.5}>
+            <TextField type="number" size="small" fullWidth label="Min vCPU" value={minVcpu} onChange={(e) => setMinVcpu(parseInt(e.target.value) || 0)} />
+          </Grid>
+          <Grid item xs={12} sm={6} md={1.5}>
+            <TextField type="number" size="small" fullWidth label="Max Price/mo" value={maxPrice} onChange={(e) => setMaxPrice(parseInt(e.target.value) || 1000)} />
+          </Grid>
+          <Grid item xs={12} md={1.5}>
+            <Button variant="contained" fullWidth onClick={handleLoadGrid} disabled={loading} startIcon={loading ? <CircularProgress size={16} /> : null}>
+              {loading ? 'Loading...' : 'Load Grid'}
+            </Button>
+          </Grid>
+        </Grid>
+      </Paper>
+
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+      {gridData.length > 0 && (
+        <>
+          <Grid container spacing={1.5} mb={2}>
+            <Grid item xs={6} sm={3} md={2}><MetricCard label="Total" value={gridData.length} color="info" /></Grid>
+            <Grid item xs={6} sm={3} md={2}><MetricCard label="Filtered" value={filteredData.length} color="info" /></Grid>
+            <Grid item xs={6} sm={3} md={2}><MetricCard label="Selected" value={selectedInstances.size} color="success" /></Grid>
+            <Grid item xs={6} sm={3} md={2}><MetricCard label="Selected Total" value={fmt(selectedData.reduce((s, r) => s + r.monthly, 0))} color="warning" /></Grid>
+          </Grid>
+
+          <Paper sx={{ p: 1.5 }}>
+            <Typography variant="subtitle2" fontWeight="bold" mb={1}>📋 {filteredData.length} instances</Typography>
+            <TableContainer sx={{ maxHeight: 500 }}>
+              <Table size="small" stickyHeader>
+                <TableHead sx={{ backgroundColor: '#1976d2' }}>
+                  <TableRow>
+                    <TableCell sx={{ color: '#fff' }}>Select</TableCell>
+                    <TableCell sx={{ color: '#fff' }}>Provider</TableCell>
+                    <TableCell sx={{ color: '#fff' }}>Instance</TableCell>
+                    <TableCell align="right" sx={{ color: '#fff' }}>vCPU</TableCell>
+                    <TableCell align="right" sx={{ color: '#fff' }}>RAM</TableCell>
+                    <TableCell align="right" sx={{ color: '#fff' }}>Monthly</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {filteredData.map((row, idx) => (
+                    <TableRow key={row.id} sx={{ backgroundColor: idx % 2 === 0 ? '#f5f5f5' : '#fff' }}>
+                      <TableCell><Checkbox size="small" checked={selectedInstances.has(row.id)} onChange={() => handleSelectInstance(row.id)} /></TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>{row.provider}</TableCell>
+                      <TableCell>{row.instance}</TableCell>
+                      <TableCell align="right">{row.vcpu}</TableCell>
+                      <TableCell align="right">{row.memory}</TableCell>
+                      <TableCell align="right" sx={{ color: '#4caf50', fontWeight: 'bold' }}>{fmt(row.monthly)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Paper>
+        </>
+      )}
+    </Box>
+  );
+}
+
+// ============================================================
+// MAIN COMPONENT
+// ============================================================
+export default function Tab2Pricing() {
+  const { openaiApiKey } = useAppStore();
+  const [tabValue, setTabValue] = useState(0);
+
+  return (
+    <Box>
+      <Typography variant="h6" sx={{ fontWeight: 700, mb: 1.5 }}>💰 Multi-Cloud Price Comparison</Typography>
+      <Paper sx={{ borderBottom: 1, borderColor: 'divider' }}>
+        <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
+          <Tab label="🌐 Live API Prices" />
+          <Tab label="📦 Offline Database" />
+          <Tab label="📊 Grid View" />
+        </Tabs>
+      </Paper>
+      {tabValue === 0 && <LiveApiTab openaiApiKey={openaiApiKey} />}
+      {tabValue === 1 && <OfflineTab openaiApiKey={openaiApiKey} />}
+      {tabValue === 2 && <GridViewTab openaiApiKey={openaiApiKey} />}
+    </Box>
+  );
+                       }
