@@ -1,1 +1,636 @@
+// LLMPricingTab.jsx
 
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import {
+  Box, Grid, TextField, MenuItem, Button, Typography,
+  CircularProgress, Alert, Paper, Tabs, Tab, TableContainer,
+  Table, TableHead, TableBody, TableRow, TableCell, Checkbox,
+  Chip, IconButton, Slider, FormControlLabel, Switch,
+  Card, CardContent, Divider, InputAdornment, Tooltip,
+  Accordion, AccordionSummary, AccordionDetails
+} from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import SearchIcon from '@mui/icons-material/Search';
+import FilterListIcon from '@mui/icons-material/FilterList';
+import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
+import SmartToyIcon from '@mui/icons-material/SmartToy';
+import CloudIcon from '@mui/icons-material/Cloud';
+import StorageIcon from '@mui/icons-material/Storage';
+import MemoryIcon from '@mui/icons-material/Memory';
+import SpeedIcon from '@mui/icons-material/Speed';
+import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
+import FileDownloadIcon from '@mui/icons-material/FileDownload';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import { DataGrid } from '@mui/x-data-grid';
+import Plot from 'react-plotly.js';
+import { comparePrices } from '../../../api/client';
+import useAppStore from '../../../store/appStore';
+import MetricCard from '../../shared/MetricCard';
+
+// ============================================================
+// CONSTANTS
+// ============================================================
+
+const SERVICE_CATEGORIES = {
+  'Compute (VM)': { icon: <MemoryIcon />, color: '#1976d2', serviceKey: 'compute' },
+  'Serverless': { icon: <CloudIcon />, color: '#9c27b0', serviceKey: 'serverless' },
+  'Container (K8s)': { icon: <SpeedIcon />, color: '#ff9800', serviceKey: 'container' },
+  'Storage': { icon: <StorageIcon />, color: '#4caf50', serviceKey: 'storage' },
+  'Database': { icon: <StorageIcon />, color: '#f44336', serviceKey: 'database' },
+  'Networking': { icon: <CloudIcon />, color: '#00bcd4', serviceKey: 'networking' },
+};
+
+const PROVIDERS = ['AWS', 'Azure', 'GCP'];
+const REGIONS = ['US East (N. Virginia)', 'US West (Oregon)', 'EU (Ireland)', 'Asia Pacific (Singapore)'];
+const PRICING_MODELS = ['On-Demand', 'Reserved 1 Year', 'Reserved 3 Year', 'Spot'];
+
+const fmt = (n) => `$${Number(n || 0).toFixed(2)}`;
+
+// ============================================================
+// LLM PRICING ANALYZER COMPONENT
+// ============================================================
+function LLMPricingAnalyzer({ openaiApiKey, onAnalyze, loading }) {
+  const [workloadDescription, setWorkloadDescription] = useState('');
+  const [analysisResult, setAnalysisResult] = useState(null);
+
+  const handleAnalyze = async () => {
+    if (!workloadDescription.trim()) return;
+    const result = await onAnalyze(workloadDescription);
+    setAnalysisResult(result);
+  };
+
+  return (
+    <Card sx={{ mb: 3, bgcolor: '#f5f5f5' }}>
+      <CardContent>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+          <SmartToyIcon sx={{ mr: 1, color: '#9c27b0' }} />
+          <Typography variant="h6">AI Price Intelligence</Typography>
+          <Chip label="Powered by LLM" size="small" sx={{ ml: 2 }} />
+        </Box>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Describe your workload in plain English, and our AI will recommend the most cost-effective cloud services across providers.
+        </Typography>
+        <Grid container spacing={2}>
+          <Grid item xs={12} md={9}>
+            <TextField
+              fullWidth
+              multiline
+              rows={3}
+              placeholder="Example: I need a production web application serving 100k users monthly, with a PostgreSQL database, using containerized microservices. Expected to run 24/7."
+              value={workloadDescription}
+              onChange={(e) => setWorkloadDescription(e.target.value)}
+              sx={{ bgcolor: 'white' }}
+            />
+          </Grid>
+          <Grid item xs={12} md={3}>
+            <Button
+              fullWidth
+              variant="contained"
+              startIcon={loading ? <CircularProgress size={20} /> : <SmartToyIcon />}
+              onClick={handleAnalyze}
+              disabled={loading || !workloadDescription.trim()}
+              sx={{ height: '100%', minHeight: 80 }}
+            >
+              {loading ? 'Analyzing...' : 'AI Analysis'}
+            </Button>
+          </Grid>
+        </Grid>
+
+        {analysisResult && (
+          <Box sx={{ mt: 2, p: 2, bgcolor: '#e3f2fd', borderRadius: 1 }}>
+            <Typography variant="subtitle2" gutterBottom>🤖 AI Recommendation</Typography>
+            <Typography variant="body2">{analysisResult.recommendation}</Typography>
+            <Grid container spacing={2} sx={{ mt: 1 }}>
+              <Grid item xs={6} sm={3}>
+                <Typography variant="caption" color="text.secondary">Recommended Provider</Typography>
+                <Typography variant="body1" fontWeight="bold">{analysisResult.provider}</Typography>
+              </Grid>
+              <Grid item xs={6} sm={3}>
+                <Typography variant="caption" color="text.secondary">Service Type</Typography>
+                <Typography variant="body1" fontWeight="bold">{analysisResult.serviceType}</Typography>
+              </Grid>
+              <Grid item xs={6} sm={3}>
+                <Typography variant="caption" color="text.secondary">Estimated Monthly</Typography>
+                <Typography variant="body1" fontWeight="bold">{fmt(analysisResult.estimatedCost)}</Typography>
+              </Grid>
+              <Grid item xs={6} sm={3}>
+                <Typography variant="caption" color="text.secondary">Confidence</Typography>
+                <Typography variant="body1" fontWeight="bold">{analysisResult.confidence}%</Typography>
+              </Grid>
+            </Grid>
+          </Box>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================================
+// SERVICE PRICING TABLE
+// ============================================================
+function ServicePricingTable({ title, data, loading, onSelect, selectedIds, onCompare }) {
+  const columns = [
+    { field: 'select', headerName: '', width: 50, renderCell: (params) => (
+      <Checkbox size="small" checked={selectedIds.has(params.row.id)} onChange={() => onSelect(params.row.id)} />
+    )},
+    { field: 'provider', headerName: 'Provider', width: 90, renderCell: (params) => (
+      <Chip label={params.value} size="small" color={params.value === 'AWS' ? 'primary' : params.value === 'Azure' ? 'info' : 'default'} />
+    )},
+    { field: 'service', headerName: 'Service', width: 150, renderCell: (params) => (
+      <Tooltip title={params.row.description || ''}>
+        <span>{params.value}</span>
+      </Tooltip>
+    )},
+    { field: 'specs', headerName: 'Specifications', width: 200 },
+    { field: 'hourly', headerName: 'Hourly', width: 90, valueFormatter: ({ value }) => value ? fmt(value) : '-' },
+    { field: 'monthly', headerName: 'Monthly', width: 100, valueFormatter: ({ value }) => fmt(value) },
+    { field: 'annual', headerName: 'Annual', width: 100, valueFormatter: ({ value }) => fmt(value || 0) },
+    { field: 'pricingModel', headerName: 'Pricing Model', width: 120 },
+    { field: 'region', headerName: 'Region', width: 120 },
+  ];
+
+  return (
+    <Paper sx={{ p: 2, mb: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="subtitle1" fontWeight="bold">{title}</Typography>
+        <Box>
+          {selectedIds.size > 0 && (
+            <Button size="small" variant="outlined" onClick={onCompare} startIcon={<CompareArrowsIcon />}>
+              Compare ({selectedIds.size})
+            </Button>
+          )}
+          <Button size="small" startIcon={<FileDownloadIcon />} sx={{ ml: 1 }}>
+            Export
+          </Button>
+        </Box>
+      </Box>
+      <Box sx={{ height: 400, width: '100%' }}>
+        <DataGrid
+          rows={data}
+          columns={columns}
+          loading={loading}
+          disableSelectionOnClick
+          checkboxSelection={false}
+          sx={{ fontSize: '0.75rem' }}
+        />
+      </Box>
+    </Paper>
+  );
+}
+
+// ============================================================
+// COMPARISON VIEW
+// ============================================================
+function ComparisonView({ selectedItems }) {
+  if (selectedItems.length === 0) return null;
+
+  const barData = [{
+    type: 'bar',
+    x: selectedItems.map(i => `${i.provider}\n${i.service}`),
+    y: selectedItems.map(i => i.monthly),
+    text: selectedItems.map(i => fmt(i.monthly)),
+    textposition: 'outside',
+    marker: { color: selectedItems.map(i => i.provider === 'AWS' ? '#ff9900' : i.provider === 'Azure' ? '#0078d4' : '#4285f4') },
+  }];
+
+  return (
+    <Card sx={{ mb: 3 }}>
+      <CardContent>
+        <Typography variant="h6" gutterBottom>📊 Service Comparison</Typography>
+        <Grid container spacing={2}>
+          <Grid item xs={12} md={6}>
+            <Plot data={barData} layout={{ title: 'Monthly Cost Comparison', height: 350 }} config={{ displayModeBar: false }} style={{ width: '100%' }} />
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <TableContainer component={Paper} variant="outlined">
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={{ bgcolor: '#f5f5f5' }}>
+                    <TableCell>Provider</TableCell>
+                    <TableCell>Service</TableCell>
+                    <TableCell align="right">Monthly</TableCell>
+                    <TableCell align="right">Annual</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {selectedItems.map((item, idx) => (
+                    <TableRow key={idx}>
+                      <TableCell>{item.provider}</TableCell>
+                      <TableCell>{item.service}</TableCell>
+                      <TableCell align="right">{fmt(item.monthly)}</TableCell>
+                      <TableCell align="right">{fmt(item.annual || item.monthly * 12)}</TableCell>
+                    </TableRow>
+                  ))}
+                  <TableRow sx={{ bgcolor: '#e8f5e9' }}>
+                    <TableCell colSpan={2}><strong>Total</strong></TableCell>
+                    <TableCell align="right"><strong>{fmt(selectedItems.reduce((s, i) => s + i.monthly, 0))}</strong></TableCell>
+                    <TableCell align="right"><strong>{fmt(selectedItems.reduce((s, i) => s + (i.annual || i.monthly * 12), 0))}</strong></TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Grid>
+        </Grid>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================================
+// FILTERS COMPONENT
+// ============================================================
+function PricingFilters({ filters, onFilterChange }) {
+  return (
+    <Paper sx={{ p: 2, mb: 3 }}>
+      <Grid container spacing={2} alignItems="center">
+        <Grid item xs={12} sm={6} md={2}>
+          <TextField
+            select fullWidth size="small" label="Provider"
+            value={filters.provider} onChange={(e) => onFilterChange('provider', e.target.value)}
+          >
+            <MenuItem value="all">All Providers</MenuItem>
+            {PROVIDERS.map(p => <MenuItem key={p} value={p}>{p}</MenuItem>)}
+          </TextField>
+        </Grid>
+        <Grid item xs={12} sm={6} md={2}>
+          <TextField
+            select fullWidth size="small" label="Region"
+            value={filters.region} onChange={(e) => onFilterChange('region', e.target.value)}
+          >
+            <MenuItem value="all">All Regions</MenuItem>
+            {REGIONS.map(r => <MenuItem key={r} value={r}>{r}</MenuItem>)}
+          </TextField>
+        </Grid>
+        <Grid item xs={12} sm={6} md={2}>
+          <TextField
+            select fullWidth size="small" label="Pricing Model"
+            value={filters.pricingModel} onChange={(e) => onFilterChange('pricingModel', e.target.value)}
+          >
+            <MenuItem value="all">All Models</MenuItem>
+            {PRICING_MODELS.map(pm => <MenuItem key={pm} value={pm}>{pm}</MenuItem>)}
+          </TextField>
+        </Grid>
+        <Grid item xs={12} sm={6} md={2}>
+          <TextField
+            type="number" fullWidth size="small" label="Min vCPU"
+            value={filters.minVcpu} onChange={(e) => onFilterChange('minVcpu', parseInt(e.target.value) || 0)}
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={2}>
+          <TextField
+            type="number" fullWidth size="small" label="Max Price ($)"
+            value={filters.maxPrice} onChange={(e) => onFilterChange('maxPrice', parseInt(e.target.value) || 10000)}
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={2}>
+          <TextField
+            fullWidth size="small" label="Search" placeholder="Instance/service..."
+            value={filters.search} onChange={(e) => onFilterChange('search', e.target.value)}
+            InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
+          />
+        </Grid>
+      </Grid>
+    </Paper>
+  );
+}
+
+// ============================================================
+// MAIN LLM PRICING TAB COMPONENT
+// ============================================================
+export default function LLMPricingTab({ openaiApiKey }) {
+  const [loading, setLoading] = useState(false);
+  const [allData, setAllData] = useState([]);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [activeCategory, setActiveCategory] = useState('Compute (VM)');
+  const [filters, setFilters] = useState({
+    provider: 'all',
+    region: 'all',
+    pricingModel: 'all',
+    minVcpu: 0,
+    maxPrice: 10000,
+    search: '',
+  });
+
+  const fetchAllPricingData = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Fetch data for all service categories
+      const categories = Object.keys(SERVICE_CATEGORIES);
+      const allResults = [];
+
+      for (const category of categories) {
+        const serviceKey = SERVICE_CATEGORIES[category].serviceKey;
+        
+        // Simulate API calls for different service types
+        // In production, you'd call your backend APIs
+        const mockData = generateMockPricingData(category);
+        allResults.push(...mockData);
+      }
+
+      setAllData(allResults);
+    } catch (error) {
+      console.error('Error fetching pricing data:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAllPricingData();
+  }, [fetchAllPricingData]);
+
+  const handleLLMAnalysis = async (description) => {
+    setLoading(true);
+    try {
+      // Call your backend LLM API
+      const response = await fetch('/api/llm/analyze-pricing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description, apiKey: openaiApiKey }),
+      });
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('LLM analysis error:', error);
+      return {
+        recommendation: 'Unable to analyze at this time. Please try again.',
+        provider: 'N/A',
+        serviceType: 'N/A',
+        estimatedCost: 0,
+        confidence: 0,
+      };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredData = useMemo(() => {
+    const categoryKey = SERVICE_CATEGORIES[activeCategory].serviceKey;
+    let data = allData.filter(item => item.category === categoryKey);
+
+    if (filters.provider !== 'all') {
+      data = data.filter(item => item.provider === filters.provider);
+    }
+    if (filters.region !== 'all') {
+      data = data.filter(item => item.region === filters.region);
+    }
+    if (filters.pricingModel !== 'all') {
+      data = data.filter(item => item.pricingModel === filters.pricingModel);
+    }
+    if (filters.minVcpu > 0) {
+      data = data.filter(item => (item.vcpu || 0) >= filters.minVcpu);
+    }
+    if (filters.maxPrice < 10000) {
+      data = data.filter(item => item.monthly <= filters.maxPrice);
+    }
+    if (filters.search) {
+      const searchLower = filters.search.toLowerCase();
+      data = data.filter(item => 
+        item.service.toLowerCase().includes(searchLower) ||
+        item.provider.toLowerCase().includes(searchLower)
+      );
+    }
+
+    return data;
+  }, [allData, activeCategory, filters]);
+
+  const selectedItems = useMemo(() => {
+    return allData.filter(item => selectedIds.has(item.id));
+  }, [allData, selectedIds]);
+
+  const handleSelect = (id) => {
+    const newSet = new Set(selectedIds);
+    if (newSet.has(id)) newSet.delete(id);
+    else newSet.add(id);
+    setSelectedIds(newSet);
+  };
+
+  const handleFilterChange = (key, value) => {
+    setFilters(prev => ({ ...prev, [key]: value }));
+  };
+
+  return (
+    <Box sx={{ width: '100%' }}>
+      {/* Header */}
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="h5" gutterBottom>💰 AI-Powered Cloud Price Intelligence</Typography>
+        <Typography variant="body2" color="text.secondary">
+          Comprehensive price comparison across AWS, Azure, and GCP for all service types.
+          Use AI to get intelligent recommendations based on your workload requirements.
+        </Typography>
+      </Box>
+
+      {/* LLM Analysis Section */}
+      <LLMPricingAnalyzer openaiApiKey={openaiApiKey} onAnalyze={handleLLMAnalysis} loading={loading} />
+
+      {/* Service Category Tabs */}
+      <Paper sx={{ mb: 3 }}>
+        <Tabs
+          value={activeCategory}
+          onChange={(e, v) => setActiveCategory(v)}
+          variant="scrollable"
+          scrollButtons="auto"
+          sx={{ borderBottom: 1, borderColor: 'divider' }}
+        >
+          {Object.entries(SERVICE_CATEGORIES).map(([name, config]) => (
+            <Tab
+              key={name}
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  {config.icon}
+                  <span>{name}</span>
+                </Box>
+              }
+              value={name}
+            />
+          ))}
+        </Tabs>
+      </Paper>
+
+      {/* Filters */}
+      <PricingFilters filters={filters} onFilterChange={handleFilterChange} />
+
+      {/* Comparison View (if items selected) */}
+      <ComparisonView selectedItems={selectedItems} />
+
+      {/* Main Pricing Table */}
+      <ServicePricingTable
+        title={`${activeCategory} Pricing (${filteredData.length} services)`}
+        data={filteredData}
+        loading={loading}
+        onSelect={handleSelect}
+        selectedIds={selectedIds}
+        onCompare={() => {}}
+      />
+
+      {/* Insights Section */}
+      <Paper sx={{ p: 2, mt: 3, bgcolor: '#e8f5e9' }}>
+        <Typography variant="subtitle2" gutterBottom>💡 Price Insights</Typography>
+        <Grid container spacing={2}>
+          <Grid item xs={12} md={4}>
+            <Typography variant="caption" color="text.secondary">Cheapest Provider</Typography>
+            <Typography variant="body1" fontWeight="bold">
+              {filteredData.length > 0 ? 
+                filteredData.reduce((a, b) => a.monthly < b.monthly ? a : b).provider : 'N/A'}
+            </Typography>
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <Typography variant="caption" color="text.secondary">Average Monthly Cost</Typography>
+            <Typography variant="body1" fontWeight="bold">
+              {filteredData.length > 0 ? 
+                fmt(filteredData.reduce((s, i) => s + i.monthly, 0) / filteredData.length) : 'N/A'}
+            </Typography>
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <Typography variant="caption" color="text.secondary">Price Range</Typography>
+            <Typography variant="body1" fontWeight="bold">
+              {filteredData.length > 0 ? 
+                `${fmt(Math.min(...filteredData.map(i => i.monthly))} - ${fmt(Math.max(...filteredData.map(i => i.monthly)))}` : 'N/A'}
+            </Typography>
+          </Grid>
+        </Grid>
+      </Paper>
+    </Box>
+  );
+}
+
+// ============================================================
+// MOCK DATA GENERATOR (Replace with actual API calls)
+// ============================================================
+function generateMockPricingData(category) {
+  const providers = ['AWS', 'Azure', 'GCP'];
+  const regions = ['US East', 'US West', 'EU', 'Asia Pacific'];
+  const pricingModels = ['On-Demand', 'Reserved 1 Year', 'Reserved 3 Year', 'Spot'];
+  
+  const mockData = [];
+
+  if (category === 'Compute (VM)') {
+    const instances = [
+      { name: 't3.medium / B2s / e2-standard-2', vcpu: 2, ram: 4, prices: { AWS: 30.36, Azure: 37.38, GCP: 48.91 } },
+      { name: 'm5.large / D2s_v3 / n2-standard-2', vcpu: 2, ram: 8, prices: { AWS: 70.08, Azure: 70.08, GCP: 70.00 } },
+      { name: 'c5.xlarge / F4s_v2 / c2-standard-8', vcpu: 4, ram: 8, prices: { AWS: 124.10, Azure: 125.56, GCP: 150.00 } },
+      { name: 'r5.xlarge / E4s_v3 / n2-highmem-4', vcpu: 4, ram: 32, prices: { AWS: 183.96, Azure: 183.96, GCP: 280.00 } },
+    ];
+    
+    instances.forEach((inst, idx) => {
+      providers.forEach(provider => {
+        mockData.push({
+          id: `${category}_${provider}_${idx}`,
+          category: 'compute',
+          provider,
+          service: inst.name.split('/')[providers.indexOf(provider)] || inst.name,
+          specs: `${inst.vcpu} vCPU, ${inst.ram} GB RAM`,
+          vcpu: inst.vcpu,
+          ram: inst.ram,
+          hourly: inst.prices[provider] / 730,
+          monthly: inst.prices[provider],
+          annual: inst.prices[provider] * 12,
+          pricingModel: 'On-Demand',
+          region: 'US East',
+          description: 'General purpose virtual machine',
+        });
+      });
+    });
+  }
+
+  if (category === 'Serverless') {
+    const services = [
+      { name: 'Lambda / Functions / Cloud Functions', prices: { AWS: 0.20, Azure: 0.20, GCP: 0.40 }, unit: 'per million requests' },
+      { name: 'API Gateway / API Management / API Gateway', prices: { AWS: 3.50, Azure: 3.50, GCP: 3.00 }, unit: 'per million requests' },
+    ];
+    
+    services.forEach((svc, idx) => {
+      providers.forEach(provider => {
+        mockData.push({
+          id: `${category}_${provider}_${idx}`,
+          category: 'serverless',
+          provider,
+          service: svc.name.split('/')[providers.indexOf(provider)] || svc.name,
+          specs: svc.unit,
+          vcpu: null,
+          ram: null,
+          hourly: svc.prices[provider] / (730 * 1000000),
+          monthly: svc.prices[provider],
+          annual: svc.prices[provider] * 12,
+          pricingModel: 'Pay-per-use',
+          region: 'Global',
+          description: 'Serverless compute service',
+        });
+      });
+    });
+  }
+
+  if (category === 'Container (K8s)') {
+    const services = [
+      { name: 'EKS / AKS / GKE', prices: { AWS: 72, Azure: 0, GCP: 72 }, unit: 'cluster management' },
+      { name: 'ECR / ACR / GCR', prices: { AWS: 0.10, Azure: 0.10, GCP: 0.10 }, unit: 'per GB stored' },
+    ];
+    
+    services.forEach((svc, idx) => {
+      providers.forEach(provider => {
+        mockData.push({
+          id: `${category}_${provider}_${idx}`,
+          category: 'container',
+          provider,
+          service: svc.name.split('/')[providers.indexOf(provider)] || svc.name,
+          specs: svc.unit,
+          vcpu: null,
+          ram: null,
+          hourly: svc.prices[provider] / 730,
+          monthly: svc.prices[provider],
+          annual: svc.prices[provider] * 12,
+          pricingModel: 'Management fee',
+          region: 'Global',
+          description: 'Managed Kubernetes service',
+        });
+      });
+    });
+  }
+
+  if (category === 'Storage') {
+    const services = [
+      { name: 'S3 Standard / Blob Hot / Cloud Storage Standard', prices: { AWS: 0.023, Azure: 0.021, GCP: 0.020 }, unit: 'per GB' },
+      { name: 'S3 Glacier / Blob Cold / Coldline', prices: { AWS: 0.004, Azure: 0.004, GCP: 0.004 }, unit: 'per GB' },
+    ];
+    
+    services.forEach((svc, idx) => {
+      providers.forEach(provider => {
+        mockData.push({
+          id: `${category}_${provider}_${idx}`,
+          category: 'storage',
+          provider,
+          service: svc.name.split('/')[providers.indexOf(provider)] || svc.name,
+          specs: svc.unit,
+          vcpu: null,
+          ram: null,
+          hourly: svc.prices[provider] / 730,
+          monthly: svc.prices[provider] * 100,
+          annual: svc.prices[provider] * 1200,
+          pricingModel: 'Usage-based',
+          region: 'US East',
+          description: 'Object storage service',
+        });
+      });
+    });
+  }
+
+  return mockData;
+}
+
+
+
+
+// In your Tab2Pricing.jsx, add the new tab:
+
+import LLMPricingTab from './LLMPricingTab';
+
+// Add to the Tabs section:
+<Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
+  <Tab label="🌐 Live API Prices" />
+  <Tab label="📦 Offline Database" />
+  <Tab label="📊 Grid View" />
+  <Tab label="🤖 AI Price Intelligence" />  {/* New Tab */}
+</Tabs>
+
+// Add to the TabPanel:
+{tabValue === 3 && <LLMPricingTab openaiApiKey={openaiApiKey} />}
