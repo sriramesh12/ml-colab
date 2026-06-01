@@ -562,3 +562,278 @@ The Key Line
 ```
 
 This single line adds the cloud service name below each service category, making the cost breakdown completely self-contained!
+
+xxxxx 
+
+You Let me address both issues:
+
+Issue 1: "Saves 100% vs others" - Bug in Calculation
+
+The problem is in the savings calculation logic. When comparing values, the math is wrong:
+
+```jsx
+// WRONG - This gives 100% when numbers are close
+{Math.round((cheapestProvider.estimated_monthly_cost / total * 100))}%
+```
+
+For example:
+
+· AWS: $325
+· Azure: $310 (cheapest)
+· GCP: $350
+
+If cheapest is $310 and total is $310, then 310 / 310 * 100 = 100% - WRONG!
+
+Fix the savings calculation:
+
+```jsx
+// CORRECT - Calculate actual savings percentage
+const savingsPercent = ((mostExpensiveProvider.estimated_monthly_cost - cheapestProvider.estimated_monthly_cost) / mostExpensiveProvider.estimated_monthly_cost * 100).toFixed(0);
+```
+
+Issue 2: "Efficiency Premium" - Misleading Label
+
+The "Efficiency" label is based on volume multiplier, not actual cost efficiency:
+
+```jsx
+// Current logic (misleading)
+volumeInfo.multiplier <= 0.6 ? "Excellent" : volumeInfo.multiplier <= 1.0 ? "Standard" : "Premium"
+```
+
+This only shows the volume level, NOT cost efficiency. It should be renamed to "Volume Level" instead.
+
+Complete Fix for Both Issues
+
+```jsx
+// In ScenarioAnalyzerTab.jsx - Fixed calculations
+
+{analysisResult.cost_estimates && analysisResult.cost_estimates.map((cost, idx) => {
+    const breakdown = cost.breakdown || {};
+    const total = cost.estimated_monthly_cost;
+    const volumeInfo = cost.volume_info || {};
+    const provider = cost.provider;
+    
+    // Calculate provider comparisons (FIXED)
+    const providers = analysisResult.cost_estimates;
+    const cheapestProvider = providers.reduce((a, b) => 
+        a.estimated_monthly_cost < b.estimated_monthly_cost ? a : b
+    );
+    const mostExpensiveProvider = providers.reduce((a, b) => 
+        a.estimated_monthly_cost > b.estimated_monthly_cost ? a : b
+    );
+    
+    // FIXED: Calculate actual savings percentage
+    let savingsPercent = 0;
+    let savingsAmount = 0;
+    if (cost.provider === cheapestProvider?.provider) {
+        savingsAmount = mostExpensiveProvider?.estimated_monthly_cost - cheapestProvider?.estimated_monthly_cost;
+        savingsPercent = (savingsAmount / mostExpensiveProvider?.estimated_monthly_cost * 100).toFixed(0);
+    }
+    
+    // FIXED: Rename to "Volume Level" instead of "Efficiency"
+    const getVolumeLevel = (multiplier) => {
+        if (multiplier <= 0.6) return { label: 'Low Volume', color: 'success', icon: '📉' };
+        if (multiplier <= 1.0) return { label: 'Standard Volume', color: 'warning', icon: '📊' };
+        return { label: 'High Volume', color: 'error', icon: '📈' };
+    };
+    const volumeLevel = getVolumeLevel(volumeInfo.multiplier);
+    
+    return (
+        <Grid item xs={12} md={4} key={idx}>
+            <Paper sx={{ p: 1.5, height: '100%', bgcolor: PROVIDER_COLORS[cost.provider]?.light || '#fafafa', borderTop: `3px solid ${PROVIDER_COLORS[cost.provider]?.bg}` }}>
+                
+                {/* Provider Header */}
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                    <Typography variant="h6" fontWeight="bold">{cost.provider}</Typography>
+                    {cost.provider === cheapestProvider?.provider && (
+                        <Tooltip title={`${savingsPercent}% cheaper than ${mostExpensiveProvider?.provider}`}>
+                            <Chip label="Best Value" size="small" color="success" icon={<CheckCircleIcon />} />
+                        </Tooltip>
+                    )}
+                </Box>
+                
+                {/* Total Cost */}
+                <Typography variant="h4" fontWeight="bold" color={PROVIDER_COLORS[cost.provider]?.bg} gutterBottom>
+                    {fmt(total)}<Typography component="span" variant="caption" color="text.secondary">/month</Typography>
+                </Typography>
+                
+                {/* FIXED: Volume Level instead of Efficiency */}
+                <Chip 
+                    label={`${volumeLevel.icon} ${volumeLevel.label}`}
+                    size="small"
+                    color={volumeLevel.color}
+                    variant="outlined"
+                    sx={{ mb: 1.5 }}
+                />
+                
+                {/* Volume Details */}
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 1.5 }}>
+                    <Tooltip title="Workload volume multiplier">
+                        <Chip label={`${Math.round(volumeInfo.multiplier * 100)}% Scale`} size="small" variant="outlined" />
+                    </Tooltip>
+                    <Tooltip title="Monthly requests">
+                        <Chip label={`📊 ${(volumeInfo.requests / 1000000).toFixed(1)}M req`} size="small" variant="outlined" />
+                    </Tooltip>
+                    <Tooltip title="Storage volume">
+                        <Chip label={`💾 ${volumeInfo.storage_gb} GB`} size="small" variant="outlined" />
+                    </Tooltip>
+                    <Tooltip title="Compute hours">
+                        <Chip label={`⚡ ${volumeInfo.compute_hours} hrs`} size="small" variant="outlined" />
+                    </Tooltip>
+                </Box>
+                
+                <Divider sx={{ my: 1 }} />
+                
+                {/* Service Breakdown Table */}
+                <Typography variant="subtitle2" gutterBottom>Services ({Object.keys(breakdown).length}):</Typography>
+                <TableContainer component={Paper} variant="outlined" sx={{ mb: 1, maxHeight: 300 }}>
+                    <Table size="small" stickyHeader>
+                        <TableHead>
+                            <TableRow sx={{ bgcolor: '#f5f5f5' }}>
+                                <TableCell>Service</TableCell>
+                                <TableCell align="right">Cost</TableCell>
+                                <TableCell align="right">%</TableCell>
+                            </TableRow>
+                        </TableHead>
+                        <TableBody>
+                            {Object.entries(breakdown).map(([category, serviceCost]) => {
+                                const servicePercent = (serviceCost / total * 100).toFixed(1);
+                                return (
+                                    <TableRow key={category}>
+                                        <TableCell>
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                {getCategoryIcon(category)}
+                                                <Typography variant="body2">{getCategoryDisplayName(category)}</Typography>
+                                            </Box>
+                                        </TableCell>
+                                        <TableCell align="right">{fmt(serviceCost)}</TableCell>
+                                        <TableCell align="right">
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, justifyContent: 'flex-end' }}>
+                                                <LinearProgress variant="determinate" value={Math.min(100, servicePercent)} sx={{ width: 50, height: 4 }} />
+                                                <Typography variant="caption">{servicePercent}%</Typography>
+                                            </Box>
+                                        </TableCell>
+                                    </TableRow>
+                                );
+                            })}
+                        </TableBody>
+                    </Table>
+                </TableContainer>
+                
+                {/* Cost Insights */}
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
+                    <Typography variant="caption" color="text.secondary">Avg/Service: {fmt(Object.values(breakdown).reduce((a, b) => a + b, 0) / Math.max(Object.keys(breakdown).length, 1))}</Typography>
+                </Box>
+                
+                {/* FIXED: Savings Alert with correct percentage */}
+                {cost.provider === cheapestProvider?.provider && savingsPercent > 0 && (
+                    <Alert severity="success" sx={{ mt: 1, py: 0, '& .MuiAlert-message': { py: 0.5 } }}>
+                        💰 Saves {savingsPercent}% vs {mostExpensiveProvider?.provider} (${savingsAmount}/month)
+                    </Alert>
+                )}
+            </Paper>
+        </Grid>
+    );
+})}
+```
+
+Issue 3: Pricing Engine Updates for New Services
+
+You're right - the MultiCloudPricingEngine needs to be updated with pricing for all the new services. Here's what needs to be added:
+
+```python
+# In optimization_engine.py - Add missing service pricing
+
+class MultiCloudPricingEngine:
+    def __init__(self):
+        # ... existing code ...
+        
+        # ============ ADD MISSING AWS SERVICE PRICING ============
+        self.aws_service_pricing.update({
+            # Media Services
+            "MediaConvert": {"type": "media", "base_price": 0.0075, "unit": "per_minute"},
+            "MediaLive": {"type": "media", "base_price": 1.50, "unit": "per_hour"},
+            "MediaPackage": {"type": "media", "base_price": 0.05, "unit": "per_gb"},
+            
+            # IoT Services
+            "IoT Core": {"type": "iot", "base_price": 0.08, "unit": "per_million_messages"},
+            "IoT Device Management": {"type": "iot", "base_price": 0.015, "unit": "per_device_per_month"},
+            
+            # ML/AI Services
+            "SageMaker": {"type": "ml", "base_instance": "ml.t3.medium"},
+            "Personalize": {"type": "ml", "base_price": 0.20, "unit": "per_training_hour"},
+            "Fraud Detector": {"type": "ml", "base_price": 0.10, "unit": "per_prediction"},
+            
+            # Gaming
+            "GameLift": {"type": "gaming", "base_price": 0.02, "unit": "per_instances_hour"},
+            
+            # Blockchain
+            "Managed Blockchain": {"type": "blockchain", "base_price": 0.50, "unit": "per_node_hour"},
+            
+            # SAP
+            "SAP HANA": {"type": "sap", "base_instance": "u-6tb1.56xlarge"},
+            
+            # Healthcare
+            "HealthLake": {"type": "healthcare", "base_price": 0.04, "unit": "per_transaction"},
+            "HealthImaging": {"type": "healthcare", "base_price": 0.02, "unit": "per_gb"},
+            
+            # Education
+            "WorkSpaces": {"type": "education", "base_price": 25.00, "unit": "per_month"},
+        })
+        
+        # ============ ADD MISSING AZURE SERVICE PRICING ============
+        self.azure_service_pricing.update({
+            # Media Services
+            "Media Services": {"type": "media", "base_price": 0.50, "unit": "per_hour"},
+            
+            # IoT
+            "IoT Hub": {"type": "iot", "base_price": 0.016, "unit": "per_thousand_messages"},
+            
+            # ML/AI
+            "Machine Learning": {"type": "ml", "base_instance": "Standard_NC6"},
+            "Personalizer": {"type": "ml", "base_price": 0.10, "unit": "per_training_hour"},
+            
+            # Gaming
+            "PlayFab": {"type": "gaming", "base_price": 99.00, "unit": "per_month"},
+            
+            # SAP
+            "SAP HANA Large Instances": {"type": "sap", "base_instance": "S96"},
+            
+            # Healthcare
+            "Health Data Services": {"type": "healthcare", "base_price": 0.05, "unit": "per_transaction"},
+        })
+        
+        # ============ ADD MISSING GCP SERVICE PRICING ============
+        self.gcp_service_pricing.update({
+            # Media
+            "Transcoder API": {"type": "media", "base_price": 0.0075, "unit": "per_minute"},
+            "Live Stream API": {"type": "media", "base_price": 1.00, "unit": "per_hour"},
+            
+            # IoT
+            "Cloud IoT": {"type": "iot", "base_price": 0.0045, "unit": "per_megabyte"},
+            
+            # ML/AI
+            "Vertex AI": {"type": "ml", "base_instance": "n1-standard-4"},
+            "Recommendations AI": {"type": "ml", "base_price": 0.10, "unit": "per_training_hour"},
+            
+            # Gaming
+            "Agones": {"type": "gaming", "base_price": 0.00, "unit": "free"},
+            
+            # SAP
+            "SAP HANA Certified VMs": {"type": "sap", "base_instance": "m2-megamem-416"},
+            
+            # Healthcare
+            "Healthcare API": {"type": "healthcare", "base_price": 0.03, "unit": "per_transaction"},
+        })
+```
+
+Summary of Fixes
+
+Issue Fix
+"Saves 100%" Changed to calculate actual percentage difference between cheapest and most expensive
+"Efficiency Premium" Renamed to "Volume Level" (Low/Standard/High Volume)
+Missing service pricing Need to add all new service prices to MultiCloudPricingEngine
+Savings calculation Now shows: "Saves X% vs Provider ($amount/month)"
+
+The savings percentage should now show correctly (e.g., "Saves 11% vs AWS ($35/month)" instead of 100%)!
+xxxxx 
