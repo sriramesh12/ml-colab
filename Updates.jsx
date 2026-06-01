@@ -1958,3 +1958,659 @@ CSV Export with Breakdown Export includes both service comparison and detailed c
 Now the cost breakdown section shows individual prices for each service category within each provider, making it clear how the total cost is calculated!
 
 
+
+
+
+xxxxxxxx
+You're absolutely right! The backend API needs to be updated to dynamically fetch prices for ALL service categories based on the scenario, not just compute/storage/database. Let me update the backend to use your existing pricing database for ALL services.
+
+Updated Backend - Dynamic Pricing for All Services
+
+```python
+# Add to your main.py - Complete rewrite of the analysis endpoint
+
+@app.post("/api/scenario-analyzer/analyze")
+async def analyze_scenario(request: ScenarioAnalysisRequest):
+    """Analyze a migration scenario and return recommendations with dynamic pricing for all services"""
+    
+    from utils.analysis.optimization_engine import MultiCloudPricingEngine
+    pricing_engine = MultiCloudPricingEngine()
+    
+    scenario_data = SCENARIO_MAPPINGS.get(request.scenario_key)
+    if not scenario_data:
+        raise HTTPException(status_code=404, detail="Scenario not found")
+    
+    # Get cost estimates base from scenario data
+    cost_estimates = scenario_data["cost_estimates"].get(request.workload_volume, scenario_data["cost_estimates"]["medium"])
+    
+    # Pricing multipliers for different service types
+    SERVICE_PRICING_MAP = {
+        # AWS Services
+        "AWS Batch": {"type": "compute", "base_instance": "m5.large", "price": None},
+        "EC2 Spot": {"type": "compute", "base_instance": "m5.large", "price": None, "spot_multiplier": 0.30},
+        "AWS Step Functions": {"type": "serverless", "base_price": 25.00, "unit": "monthly"},
+        "S3 (Standard)": {"type": "storage", "base_price": 0.023, "unit": "per_gb"},
+        "S3 (Standard/Glacier)": {"type": "storage", "base_price": 0.023, "unit": "per_gb"},
+        "RDS": {"type": "database", "base_instance": "db.t3.micro", "price": None},
+        "Redshift": {"type": "database", "base_instance": "dc2.large", "price": None},
+        "Lambda": {"type": "serverless", "base_price": 0.20, "unit": "per_million_requests"},
+        "API Gateway": {"type": "serverless", "base_price": 3.50, "unit": "per_million_requests"},
+        "CloudFront": {"type": "network", "base_price": 0.085, "unit": "per_gb"},
+        "Route 53": {"type": "network", "base_price": 0.50, "unit": "per_hosted_zone"},
+        "WAF": {"type": "security", "base_price": 5.00, "unit": "per_web_acl"},
+        "Shield": {"type": "security", "base_price": 0.00, "unit": "free"},
+        "Application Load Balancer": {"type": "network", "base_price": 0.0225, "unit": "per_hour"},
+        "SQS": {"type": "messaging", "base_price": 0.40, "unit": "per_million_requests"},
+        "MSK": {"type": "messaging", "base_instance": "kafka.m5.large", "price": None},
+        "ECS": {"type": "container", "base_price": 0.00, "unit": "free"},
+        "EKS": {"type": "container", "base_price": 0.10, "unit": "per_hour"},
+        "Glue": {"type": "data_processing", "base_price": 0.44, "unit": "per_dpu_hour"},
+        "EMR": {"type": "data_processing", "base_instance": "m5.xlarge", "price": None},
+        "Kinesis": {"type": "streaming", "base_price": 0.015, "unit": "per_shard_hour"},
+        "MWAA": {"type": "orchestration", "base_instance": "mw.small", "price": None},
+        "Lake Formation": {"type": "data_lake", "base_price": 0.00, "unit": "free"},
+        
+        # Azure Services
+        "Azure Batch": {"type": "compute", "base_instance": "D4s_v3", "price": None},
+        "Azure Logic Apps": {"type": "serverless", "base_price": 0.20, "unit": "per_million_actions"},
+        "Durable Functions": {"type": "serverless", "base_price": 0.20, "unit": "per_million_executions"},
+        "Blob Storage (Hot)": {"type": "storage", "base_price": 0.021, "unit": "per_gb"},
+        "Blob Storage (Cool)": {"type": "storage", "base_price": 0.012, "unit": "per_gb"},
+        "Azure SQL": {"type": "database", "base_instance": "db.t3.micro", "price": None},
+        "Synapse Analytics": {"type": "database", "base_instance": "dw100c", "price": None},
+        "Functions": {"type": "serverless", "base_price": 0.20, "unit": "per_million_executions"},
+        "API Management": {"type": "serverless", "base_price": 0.20, "unit": "per_10k_calls"},
+        "Azure CDN": {"type": "network", "base_price": 0.081, "unit": "per_gb"},
+        "Azure DNS": {"type": "network", "base_price": 0.50, "unit": "per_hosted_zone"},
+        "WAF": {"type": "security", "base_price": 15.00, "unit": "per_policy"},
+        "Front Door": {"type": "network", "base_price": 0.025, "unit": "per_hour"},
+        "Service Bus": {"type": "messaging", "base_price": 0.05, "unit": "per_million_operations"},
+        "Event Hubs": {"type": "messaging", "base_price": 0.015, "unit": "per_throughput_unit_hour"},
+        "AKS": {"type": "container", "base_price": 0.00, "unit": "free"},
+        "ACR": {"type": "container", "base_price": 0.10, "unit": "per_gb"},
+        "Data Factory": {"type": "data_processing", "base_price": 1.00, "unit": "per_diu_hour"},
+        "Databricks": {"type": "data_processing", "base_price": 0.40, "unit": "per_dbu"},
+        "Event Hubs": {"type": "streaming", "base_price": 0.015, "unit": "per_tu_hour"},
+        "Data Lake Storage": {"type": "data_lake", "base_price": 0.021, "unit": "per_gb"},
+        
+        # GCP Services
+        "Cloud Batch": {"type": "compute", "base_instance": "n2-standard-4", "price": None},
+        "Preemptible VMs": {"type": "compute", "base_instance": "n2-standard-4", "price": None, "spot_multiplier": 0.40},
+        "Cloud Workflows": {"type": "serverless", "base_price": 0.01, "unit": "per_1000_steps"},
+        "Cloud Storage (Standard)": {"type": "storage", "base_price": 0.020, "unit": "per_gb"},
+        "Cloud Storage (Nearline)": {"type": "storage", "base_price": 0.010, "unit": "per_gb"},
+        "Cloud SQL": {"type": "database", "base_instance": "db.t3.micro", "price": None},
+        "BigQuery": {"type": "database", "base_price": 5.00, "unit": "per_tb_processed"},
+        "Cloud Functions": {"type": "serverless", "base_price": 0.40, "unit": "per_million_invocations"},
+        "Cloud Run": {"type": "serverless", "base_price": 0.018, "unit": "per_vcpu_hour"},
+        "API Gateway": {"type": "serverless", "base_price": 3.00, "unit": "per_million_calls"},
+        "Cloud CDN": {"type": "network", "base_price": 0.075, "unit": "per_gb"},
+        "Cloud DNS": {"type": "network", "base_price": 0.20, "unit": "per_hosted_zone"},
+        "Cloud Armor": {"type": "security", "base_price": 5.00, "unit": "per_policy"},
+        "Cloud Load Balancing": {"type": "network", "base_price": 0.025, "unit": "per_hour"},
+        "Pub/Sub": {"type": "messaging", "base_price": 0.40, "unit": "per_million_messages"},
+        "GKE": {"type": "container", "base_price": 0.10, "unit": "per_hour"},
+        "GCR": {"type": "container", "base_price": 0.10, "unit": "per_gb"},
+        "Dataflow": {"type": "data_processing", "base_price": 0.01, "unit": "per_vcpu_hour"},
+        "Dataproc": {"type": "data_processing", "base_instance": "n2-standard-4", "price": None},
+        "Cloud Composer": {"type": "orchestration", "base_instance": "n2-standard-4", "price": None},
+        "Dataplex": {"type": "data_lake", "base_price": 0.00, "unit": "free"},
+    }
+    
+    def get_service_price(provider, service_name, volume_multiplier=1.0):
+        """Get price for a specific service from pricing engine or fallback"""
+        key = f"{service_name}"
+        
+        # Try to find matching service in mapping
+        for service_key, config in SERVICE_PRICING_MAP.items():
+            if service_key.lower() in service_name.lower() or service_name.lower() in service_key.lower():
+                if config["type"] == "compute" and config.get("base_instance"):
+                    # Get instance price from pricing engine
+                    price_info = pricing_engine.get_price(provider.lower(), config["base_instance"], "us-east-1")
+                    if price_info:
+                        base_price = price_info["monthly"]
+                        if config.get("spot_multiplier"):
+                            base_price *= config["spot_multiplier"]
+                        return base_price
+                elif config["type"] == "storage":
+                    # Assume 100GB for storage services
+                    return config["base_price"] * 100 * volume_multiplier
+                elif config["type"] == "database" and config.get("base_instance"):
+                    price_info = pricing_engine.get_price(provider.lower(), config["base_instance"], "us-east-1")
+                    if price_info:
+                        return price_info["monthly"]
+                else:
+                    return config["base_price"] * volume_multiplier
+        
+        # Default fallback based on service type
+        if "batch" in service_name.lower() or "compute" in service_name.lower():
+            base_price = 150 * volume_multiplier
+        elif "storage" in service_name.lower():
+            base_price = 23 * volume_multiplier  # 100GB at $0.023/GB
+        elif "database" in service_name.lower():
+            base_price = 70 * volume_multiplier
+        elif "serverless" in service_name.lower() or "function" in service_name.lower():
+            base_price = 20 * volume_multiplier
+        elif "container" in service_name.lower() or "kubernetes" in service_name.lower():
+            base_price = 72 * volume_multiplier
+        elif "network" in service_name.lower() or "cdn" in service_name.lower():
+            base_price = 15 * volume_multiplier
+        elif "security" in service_name.lower() or "waf" in service_name.lower():
+            base_price = 25 * volume_multiplier
+        else:
+            base_price = 50 * volume_multiplier
+        
+        return base_price
+    
+    # Volume multiplier based on workload volume
+    volume_multipliers = {
+        "low": 0.5,
+        "medium": 1.0,
+        "high": 2.0
+    }
+    volume_multiplier = volume_multipliers.get(request.workload_volume, 1.0)
+    
+    # Build service comparison with dynamic pricing
+    service_comparison = []
+    service_costs = {
+        "AWS": {},
+        "Azure": {},
+        "GCP": {}
+    }
+    
+    for category, provider_mapping in scenario_data["services"].items():
+        aws_service = provider_mapping.get("aws", "Not available")
+        azure_service = provider_mapping.get("azure", "Not available")
+        gcp_service = provider_mapping.get("gcp", "Not available")
+        
+        # Get prices for each service
+        aws_cost = get_service_price("AWS", aws_service, volume_multiplier) if aws_service != "Not available" else 0
+        azure_cost = get_service_price("Azure", azure_service, volume_multiplier) if azure_service != "Not available" else 0
+        gcp_cost = get_service_price("GCP", gcp_service, volume_multiplier) if gcp_service != "Not available" else 0
+        
+        # Store costs for breakdown
+        if aws_cost > 0:
+            service_costs["AWS"][category] = aws_cost
+        if azure_cost > 0:
+            service_costs["Azure"][category] = azure_cost
+        if gcp_cost > 0:
+            service_costs["GCP"][category] = gcp_cost
+        
+        service_comparison.append({
+            "service_category": category.replace("_", " ").title(),
+            "aws": aws_service,
+            "azure": azure_service,
+            "gcp": gcp_service,
+            "aws_cost": round(aws_cost, 2),
+            "azure_cost": round(azure_cost, 2),
+            "gcp_cost": round(gcp_cost, 2),
+        })
+    
+    # Calculate totals
+    aws_total = round(sum(service_costs["AWS"].values()), 2)
+    azure_total = round(sum(service_costs["Azure"].values()), 2)
+    gcp_total = round(sum(service_costs["GCP"].values()), 2)
+    
+    cost_list = [
+        {
+            "provider": "AWS",
+            "estimated_monthly_cost": aws_total,
+            "breakdown": service_costs["AWS"]
+        },
+        {
+            "provider": "Azure",
+            "estimated_monthly_cost": azure_total,
+            "breakdown": service_costs["Azure"]
+        },
+        {
+            "provider": "GCP",
+            "estimated_monthly_cost": gcp_total,
+            "breakdown": service_costs["GCP"]
+        }
+    ]
+    
+    return {
+        "scenario_name": scenario_data["name"],
+        "description": scenario_data["description"],
+        "typical_workloads": scenario_data["typical_workloads"],
+        "service_comparison": service_comparison,
+        "cost_estimates": cost_list,
+        "recommended_strategy": scenario_data["recommended_strategy"],
+        "cost_saving_tips": scenario_data["cost_saving_tips"]
+    }
+```
+
+Key Changes
+
+Change Description
+Dynamic Service Pricing Map Maps each service to a pricing type (compute, storage, database, serverless, container, etc.)
+Pricing Engine Integration Uses MultiCloudPricingEngine to get actual instance prices from your offline database
+Volume Multiplier Scales prices based on workload volume (low/medium/high)
+All Service Categories Handles ALL services: compute, storage, database, serverless, container, network, security, messaging, data processing, streaming, orchestration, data lake
+Fallback Pricing Intelligent fallback if service not found in mapping
+
+How It Works
+
+1. For each service in the scenario, the backend looks up its pricing configuration
+2. If it's a compute/database service, it fetches real instance pricing from your MultiCloudPricingEngine
+3. If it's a storage service, it uses per-GB pricing multiplied by volume
+4. If it's a serverless service, it uses per-request/per-execution pricing
+5. Volume multiplier scales prices appropriately (0.5x for low, 1x for medium, 2x for high)
+
+Now all services across ALL scenarios will have proper pricing from your offline database!
+
+
+xxxxxxxxxxxx
+Absolutely! That's a much better architecture. The pricing map should be part of the MultiCloudPricingEngine so all pricing logic is centralized. Let me update the optimization_engine.py to include service pricing and then reference it from the API.
+
+Step 1: Update MultiCloudPricingEngine with Service Pricing
+
+```python
+# utils/analysis/optimization_engine.py - Add service pricing to MultiCloudPricingEngine
+
+class MultiCloudPricingEngine:
+    def __init__(self):
+        # ... existing code ...
+        
+        # ============================================================
+        # SERVICE PRICING MAP (for non-compute services)
+        # ============================================================
+        
+        self.service_pricing = {
+            # ============ AWS Service Pricing ============
+            "AWS": {
+                # Serverless
+                "Lambda": {"type": "serverless", "base_price": 0.20, "unit": "per_million_requests", "free_tier": 1000000},
+                "API Gateway": {"type": "serverless", "base_price": 3.50, "unit": "per_million_requests", "free_tier": 1000000},
+                "Step Functions": {"type": "serverless", "base_price": 0.025, "unit": "per_1000_transitions", "free_tier": 4000},
+                "EventBridge": {"type": "serverless", "base_price": 1.00, "unit": "per_million_events", "free_tier": 100000},
+                
+                # Storage
+                "S3 Standard": {"type": "storage", "base_price": 0.023, "unit": "per_gb", "free_tier": 5},
+                "S3 Intelligent-Tiering": {"type": "storage", "base_price": 0.023, "unit": "per_gb"},
+                "S3 Infrequent Access": {"type": "storage", "base_price": 0.0125, "unit": "per_gb", "retrieval_cost": 0.01},
+                "S3 Glacier": {"type": "storage", "base_price": 0.004, "unit": "per_gb", "retrieval_cost": 0.02},
+                "EBS gp3": {"type": "storage", "base_price": 0.08, "unit": "per_gb_month"},
+                "EBS io1": {"type": "storage", "base_price": 0.125, "unit": "per_gb_month"},
+                "EFS Standard": {"type": "storage", "base_price": 0.30, "unit": "per_gb_month"},
+                "EFS Infrequent Access": {"type": "storage", "base_price": 0.045, "unit": "per_gb_month"},
+                
+                # Database
+                "RDS MySQL": {"type": "database", "base_instance": "db.t3.micro", "storage_cost": 0.115},
+                "RDS PostgreSQL": {"type": "database", "base_instance": "db.t3.micro", "storage_cost": 0.115},
+                "RDS SQL Server": {"type": "database", "base_instance": "db.t3.micro", "storage_cost": 0.115, "license_multiplier": 1.5},
+                "DynamoDB": {"type": "nosql", "base_price": 0.00065, "unit": "per_25_wcu_hour", "storage_cost": 0.25},
+                "Redshift": {"type": "database", "base_instance": "dc2.large", "storage_cost": 0.024},
+                "Aurora": {"type": "database", "base_instance": "db.t3.medium", "storage_cost": 0.10},
+                "ElastiCache Redis": {"type": "cache", "base_instance": "cache.t3.micro"},
+                "ElastiCache Memcached": {"type": "cache", "base_instance": "cache.t3.micro"},
+                
+                # Container
+                "EKS": {"type": "container", "base_price": 0.10, "unit": "per_hour"},
+                "ECS": {"type": "container", "base_price": 0.00, "unit": "free"},
+                "ECR": {"type": "container", "base_price": 0.10, "unit": "per_gb_month"},
+                "Fargate": {"type": "container", "base_price": 0.040, "unit": "per_vcpu_hour", "memory_cost": 0.004, "memory_unit": "per_gb_hour"},
+                
+                # Networking
+                "CloudFront": {"type": "network", "base_price": 0.085, "unit": "per_gb", "request_cost": 0.010, "request_unit": "per_10000_requests"},
+                "Route 53": {"type": "network", "base_price": 0.50, "unit": "per_hosted_zone_month"},
+                "Application Load Balancer": {"type": "network", "base_price": 0.0225, "unit": "per_hour"},
+                "Network Load Balancer": {"type": "network", "base_price": 0.0225, "unit": "per_hour"},
+                "NAT Gateway": {"type": "network", "base_price": 0.045, "unit": "per_hour", "data_cost": 0.045},
+                "Direct Connect": {"type": "network", "base_price": 0.10, "unit": "per_port_hour"},
+                "VPN Connection": {"type": "network", "base_price": 0.05, "unit": "per_hour"},
+                
+                # Security
+                "WAF": {"type": "security", "base_price": 5.00, "unit": "per_web_acl_month", "request_cost": 0.60, "request_unit": "per_million_requests"},
+                "Shield Advanced": {"type": "security", "base_price": 3000.00, "unit": "per_month"},
+                "GuardDuty": {"type": "security", "base_price": 0.05, "unit": "per_gb_processed"},
+                "Inspector": {"type": "security", "base_price": 0.03, "unit": "per_instance_assessment"},
+                "Secrets Manager": {"type": "security", "base_price": 0.40, "unit": "per_secret_month", "request_cost": 0.05, "request_unit": "per_10000_requests"},
+                "Certificate Manager": {"type": "security", "base_price": 0.00, "unit": "free"},
+                
+                # Messaging
+                "SQS": {"type": "messaging", "base_price": 0.40, "unit": "per_million_requests", "free_tier": 1000000},
+                "SNS": {"type": "messaging", "base_price": 0.50, "unit": "per_million_requests"},
+                "MSK": {"type": "messaging", "base_instance": "kafka.m5.large"},
+                
+                # Data Processing
+                "Glue": {"type": "data_processing", "base_price": 0.44, "unit": "per_dpu_hour"},
+                "EMR": {"type": "data_processing", "base_instance": "m5.xlarge"},
+                "Kinesis": {"type": "streaming", "base_price": 0.015, "unit": "per_shard_hour"},
+                "MWAA": {"type": "orchestration", "base_instance": "mw.small"},
+                "Lake Formation": {"type": "data_lake", "base_price": 0.00, "unit": "free"},
+                "Data Pipeline": {"type": "data_processing", "base_price": 1.00, "unit": "per_activity"},
+            },
+            
+            # ============ Azure Service Pricing ============
+            "Azure": {
+                # Serverless
+                "Functions": {"type": "serverless", "base_price": 0.20, "unit": "per_million_executions", "free_tier": 1000000},
+                "Logic Apps": {"type": "serverless", "base_price": 0.20, "unit": "per_million_actions", "free_tier": 4000},
+                "Durable Functions": {"type": "serverless", "base_price": 0.20, "unit": "per_million_executions"},
+                "API Management": {"type": "serverless", "base_price": 0.20, "unit": "per_10k_calls", "free_tier": 500000},
+                
+                # Storage
+                "Blob Storage Hot": {"type": "storage", "base_price": 0.021, "unit": "per_gb", "free_tier": 5},
+                "Blob Storage Cool": {"type": "storage", "base_price": 0.012, "unit": "per_gb", "retrieval_cost": 0.01},
+                "Blob Storage Cold": {"type": "storage", "base_price": 0.004, "unit": "per_gb", "retrieval_cost": 0.02},
+                "Managed Disk Standard SSD": {"type": "storage", "base_price": 0.06, "unit": "per_gb_month"},
+                "Managed Disk Premium SSD": {"type": "storage", "base_price": 0.12, "unit": "per_gb_month"},
+                "Azure Files": {"type": "storage", "base_price": 0.06, "unit": "per_gb_month"},
+                "Azure NetApp Files": {"type": "storage", "base_price": 0.10, "unit": "per_gb_month"},
+                
+                # Database
+                "SQL Database": {"type": "database", "base_instance": "db.t3.micro", "storage_cost": 0.115},
+                "Cosmos DB": {"type": "nosql", "base_price": 0.008, "unit": "per_100_ru_hour", "storage_cost": 0.25},
+                "Azure Database MySQL": {"type": "database", "base_instance": "db.t3.micro", "storage_cost": 0.115},
+                "Azure Database PostgreSQL": {"type": "database", "base_instance": "db.t3.micro", "storage_cost": 0.115},
+                "Synapse Analytics": {"type": "database", "base_instance": "dw100c", "storage_cost": 0.024},
+                "Redis Cache": {"type": "cache", "base_instance": "cache.t3.micro"},
+                
+                # Container
+                "AKS": {"type": "container", "base_price": 0.00, "unit": "free"},
+                "ACR": {"type": "container", "base_price": 0.10, "unit": "per_gb_month"},
+                "ACI": {"type": "container", "base_price": 0.015, "unit": "per_vcpu_hour"},
+                
+                # Networking
+                "Azure CDN": {"type": "network", "base_price": 0.081, "unit": "per_gb"},
+                "Azure DNS": {"type": "network", "base_price": 0.50, "unit": "per_hosted_zone_month"},
+                "Application Gateway": {"type": "network", "base_price": 0.025, "unit": "per_hour"},
+                "Load Balancer": {"type": "network", "base_price": 0.025, "unit": "per_hour"},
+                "Front Door": {"type": "network", "base_price": 0.025, "unit": "per_hour"},
+                "NAT Gateway": {"type": "network", "base_price": 0.045, "unit": "per_hour"},
+                "VPN Gateway": {"type": "network", "base_price": 0.10, "unit": "per_hour"},
+                
+                # Security
+                "WAF": {"type": "security", "base_price": 15.00, "unit": "per_policy_month"},
+                "Azure Firewall": {"type": "security", "base_price": 1.25, "unit": "per_hour"},
+                "DDoS Protection": {"type": "security", "base_price": 2940.00, "unit": "per_month"},
+                "Key Vault": {"type": "security", "base_price": 0.00, "unit": "free", "request_cost": 0.03, "request_unit": "per_10000_operations"},
+                "Security Center": {"type": "security", "base_price": 15.00, "unit": "per_server_month"},
+                "Sentinel": {"type": "security", "base_price": 2.46, "unit": "per_gb_ingested"},
+                
+                # Messaging
+                "Service Bus": {"type": "messaging", "base_price": 0.05, "unit": "per_million_operations", "free_tier": 1300000},
+                "Event Hubs": {"type": "messaging", "base_price": 0.015, "unit": "per_throughput_unit_hour"},
+                "Event Grid": {"type": "messaging", "base_price": 0.60, "unit": "per_million_operations", "free_tier": 100000},
+                
+                # Data Processing
+                "Data Factory": {"type": "data_processing", "base_price": 1.00, "unit": "per_diu_hour"},
+                "Databricks": {"type": "data_processing", "base_price": 0.40, "unit": "per_dbu"},
+                "Stream Analytics": {"type": "streaming", "base_price": 0.11, "unit": "per_streaming_unit_hour"},
+                "Data Lake Storage": {"type": "data_lake", "base_price": 0.021, "unit": "per_gb"},
+            },
+            
+            # ============ GCP Service Pricing ============
+            "GCP": {
+                # Serverless
+                "Cloud Functions": {"type": "serverless", "base_price": 0.40, "unit": "per_million_invocations", "free_tier": 2000000},
+                "Cloud Run": {"type": "serverless", "base_price": 0.018, "unit": "per_vcpu_hour", "memory_cost": 0.002, "memory_unit": "per_gb_hour"},
+                "Workflows": {"type": "serverless", "base_price": 0.01, "unit": "per_1000_steps", "free_tier": 5000},
+                "API Gateway": {"type": "serverless", "base_price": 3.00, "unit": "per_million_calls", "free_tier": 2000000},
+                
+                # Storage
+                "Cloud Storage Standard": {"type": "storage", "base_price": 0.020, "unit": "per_gb", "free_tier": 5},
+                "Cloud Storage Nearline": {"type": "storage", "base_price": 0.010, "unit": "per_gb", "retrieval_cost": 0.01},
+                "Cloud Storage Coldline": {"type": "storage", "base_price": 0.004, "unit": "per_gb", "retrieval_cost": 0.02},
+                "Cloud Storage Archive": {"type": "storage", "base_price": 0.0012, "unit": "per_gb", "retrieval_cost": 0.05},
+                "Persistent Disk Standard": {"type": "storage", "base_price": 0.04, "unit": "per_gb_month"},
+                "Persistent Disk SSD": {"type": "storage", "base_price": 0.17, "unit": "per_gb_month"},
+                "Filestore": {"type": "storage", "base_price": 0.20, "unit": "per_gb_month"},
+                
+                # Database
+                "Cloud SQL": {"type": "database", "base_instance": "db.t3.micro", "storage_cost": 0.17},
+                "Cloud SQL for SQL Server": {"type": "database", "base_instance": "db.t3.micro", "storage_cost": 0.17, "license_multiplier": 1.5},
+                "Firestore": {"type": "nosql", "base_price": 0.06, "unit": "per_100k_reads", "storage_cost": 0.18},
+                "BigQuery": {"type": "database", "base_price": 5.00, "unit": "per_tb_processed", "storage_cost": 0.02},
+                "Spanner": {"type": "database", "base_instance": "spanner.1000", "storage_cost": 0.30},
+                "Memorystore Redis": {"type": "cache", "base_instance": "gce.2vCPU"},
+                "AlloyDB": {"type": "database", "base_instance": "db.t3.medium"},
+                
+                # Container
+                "GKE": {"type": "container", "base_price": 0.10, "unit": "per_hour"},
+                "GCR": {"type": "container", "base_price": 0.10, "unit": "per_gb_month"},
+                "Cloud Run for Anthos": {"type": "container", "base_price": 0.018, "unit": "per_vcpu_hour"},
+                
+                # Networking
+                "Cloud CDN": {"type": "network", "base_price": 0.075, "unit": "per_gb"},
+                "Cloud DNS": {"type": "network", "base_price": 0.20, "unit": "per_hosted_zone_month"},
+                "Cloud Load Balancing": {"type": "network", "base_price": 0.025, "unit": "per_hour"},
+                "Cloud NAT": {"type": "network", "base_price": 0.045, "unit": "per_hour"},
+                "Cloud VPN": {"type": "network", "base_price": 0.05, "unit": "per_hour"},
+                "Cloud Interconnect": {"type": "network", "base_price": 0.10, "unit": "per_hour"},
+                
+                # Security
+                "Cloud Armor": {"type": "security", "base_price": 5.00, "unit": "per_policy_month", "request_cost": 0.75, "request_unit": "per_million_requests"},
+                "Cloud IAM": {"type": "security", "base_price": 0.00, "unit": "free"},
+                "Secret Manager": {"type": "security", "base_price": 0.06, "unit": "per_secret_version_month", "access_cost": 0.03, "access_unit": "per_10000_accesses"},
+                "Certificate Manager": {"type": "security", "base_price": 0.00, "unit": "free"},
+                "Cloud DLP": {"type": "security", "base_price": 0.01, "unit": "per_1k_bytes"},
+                
+                # Messaging
+                "Pub/Sub": {"type": "messaging", "base_price": 0.40, "unit": "per_million_messages", "free_tier": 10000000},
+                "Eventarc": {"type": "messaging", "base_price": 1.00, "unit": "per_million_events", "free_tier": 100000},
+                
+                # Data Processing
+                "Dataflow": {"type": "data_processing", "base_price": 0.01, "unit": "per_vcpu_hour"},
+                "Dataproc": {"type": "data_processing", "base_instance": "n2-standard-4"},
+                "Cloud Composer": {"type": "orchestration", "base_instance": "n2-standard-4"},
+                "Dataplex": {"type": "data_lake", "base_price": 0.00, "unit": "free"},
+                "Data Catalog": {"type": "data_lake", "base_price": 0.00, "unit": "free"},
+            }
+        }
+    
+    def get_service_price(self, provider: str, service_name: str, volume_multiplier: float = 1.0, storage_gb: float = 100.0) -> float:
+        """
+        Get price for a service from the service pricing map
+        
+        Args:
+            provider: 'AWS', 'Azure', or 'GCP'
+            service_name: Name of the service
+            volume_multiplier: Volume multiplier (0.5 for low, 1 for medium, 2 for high)
+            storage_gb: Storage size in GB (for storage services)
+        
+        Returns:
+            Estimated monthly cost
+        """
+        
+        provider_pricing = self.service_pricing.get(provider, {})
+        
+        # Find matching service (case-insensitive partial match)
+        for service_key, config in provider_pricing.items():
+            if service_key.lower() in service_name.lower() or service_name.lower() in service_key.lower():
+                return self._calculate_service_price(config, volume_multiplier, storage_gb, provider)
+        
+        # Fallback based on service type detection
+        return self._get_fallback_service_price(service_name, volume_multiplier, provider)
+    
+    def _calculate_service_price(self, config: dict, volume_multiplier: float, storage_gb: float, provider: str) -> float:
+        """Calculate price based on service configuration"""
+        
+        service_type = config.get("type", "other")
+        
+        # Compute services (VMs)
+        if service_type == "compute" and config.get("base_instance"):
+            price_info = self.get_price(provider.lower(), config["base_instance"], "us-east-1")
+            if price_info:
+                base_price = price_info["monthly"]
+                if config.get("spot_multiplier"):
+                    base_price *= config["spot_multiplier"]
+                return base_price * volume_multiplier
+        
+        # Database services
+        elif service_type == "database" and config.get("base_instance"):
+            price_info = self.get_price(provider.lower(), config["base_instance"], "us-east-1")
+            if price_info:
+                base_price = price_info["monthly"]
+                # Add storage cost
+                storage_cost = config.get("storage_cost", 0) * storage_gb
+                return (base_price + storage_cost) * volume_multiplier
+        
+        # Cache services
+        elif service_type == "cache" and config.get("base_instance"):
+            price_info = self.get_price(provider.lower(), config["base_instance"], "us-east-1")
+            if price_info:
+                return price_info["monthly"] * volume_multiplier
+        
+        # Storage services
+        elif service_type == "storage":
+            base_price = config.get("base_price", 0) * storage_gb
+            return base_price * volume_multiplier
+        
+        # Serverless services
+        elif service_type == "serverless":
+            # Assume 1 million requests per month for serverless
+            base_price = config.get("base_price", 0)
+            return base_price * volume_multiplier
+        
+        # Container services
+        elif service_type == "container":
+            if config.get("base_price"):
+                # Assume 730 hours per month (24x7)
+                return config["base_price"] * 730 * volume_multiplier
+            elif config.get("base_instance"):
+                price_info = self.get_price(provider.lower(), config["base_instance"], "us-east-1")
+                if price_info:
+                    return price_info["monthly"] * volume_multiplier
+        
+        # Networking services
+        elif service_type == "network":
+            if config.get("base_price"):
+                # Assume 730 hours for hourly services, or base price for GB-based
+                if config.get("unit") == "per_hour":
+                    return config["base_price"] * 730 * volume_multiplier
+                elif config.get("unit") == "per_gb":
+                    return config["base_price"] * 100 * volume_multiplier
+                else:
+                    return config["base_price"] * volume_multiplier
+        
+        # Security services
+        elif service_type == "security":
+            if config.get("base_price"):
+                return config["base_price"] * volume_multiplier
+        
+        # Messaging services
+        elif service_type == "messaging":
+            # Assume 1 million messages
+            return config.get("base_price", 0) * volume_multiplier
+        
+        # Data processing services
+        elif service_type in ["data_processing", "streaming", "orchestration", "data_lake"]:
+            if config.get("base_price"):
+                return config["base_price"] * volume_multiplier
+            elif config.get("base_instance"):
+                price_info = self.get_price(provider.lower(), config["base_instance"], "us-east-1")
+                if price_info:
+                    return price_info["monthly"] * volume_multiplier
+        
+        # Default fallback
+        return 50 * volume_multiplier
+    
+    def _get_fallback_service_price(self, service_name: str, volume_multiplier: float, provider: str) -> float:
+        """Get fallback price based on service name patterns"""
+        
+        service_lower = service_name.lower()
+        
+        if "batch" in service_lower or "compute" in service_lower:
+            return 150 * volume_multiplier
+        elif "storage" in service_lower:
+            return 23 * volume_multiplier  # 100GB at $0.023/GB
+        elif "database" in service_lower:
+            return 70 * volume_multiplier
+        elif "serverless" in service_lower or "function" in service_lower or "lambda" in service_lower:
+            return 20 * volume_multiplier
+        elif "container" in service_lower or "kubernetes" in service_lower or "eks" in service_lower or "aks" in service_lower or "gke" in service_lower:
+            return 72 * volume_multiplier
+        elif "network" in service_lower or "cdn" in service_lower or "load balancer" in service_lower:
+            return 15 * volume_multiplier
+        elif "security" in service_lower or "waf" in service_lower or "firewall" in service_lower:
+            return 25 * volume_multiplier
+        elif "messaging" in service_lower or "queue" in service_lower or "pub/sub" in service_lower:
+            return 20 * volume_multiplier
+        elif "data" in service_lower or "etl" in service_lower or "pipeline" in service_lower:
+            return 100 * volume_multiplier
+        else:
+            return 50 * volume_multiplier
+```
+
+Step 2: Update the API Endpoint to Use the Pricing Engine
+
+```python
+# In main.py - Simplified version using the pricing engine
+
+@app.post("/api/scenario-analyzer/analyze")
+async def analyze_scenario(request: ScenarioAnalysisRequest):
+    """Analyze a migration scenario using the pricing engine"""
+    
+    from utils.analysis.optimization_engine import MultiCloudPricingEngine
+    pricing_engine = MultiCloudPricingEngine()
+    
+    scenario_data = SCENARIO_MAPPINGS.get(request.scenario_key)
+    if not scenario_data:
+        raise HTTPException(status_code=404, detail="Scenario not found")
+    
+    # Volume multiplier
+    volume_multipliers = {"low": 0.5, "medium": 1.0, "high": 2.0}
+    volume_multiplier = volume_multipliers.get(request.workload_volume, 1.0)
+    
+    # Build service comparison with pricing engine
+    service_comparison = []
+    service_costs = {"AWS": {}, "Azure": {}, "GCP": {}}
+    
+    for category, provider_mapping in scenario_data["services"].items():
+        aws_service = provider_mapping.get("aws", "Not available")
+        azure_service = provider_mapping.get("azure", "Not available")
+        gcp_service = provider_mapping.get("gcp", "Not available")
+        
+        # Get prices using the pricing engine
+        aws_cost = pricing_engine.get_service_price("AWS", aws_service, volume_multiplier) if aws_service != "Not available" else 0
+        azure_cost = pricing_engine.get_service_price("Azure", azure_service, volume_multiplier) if azure_service != "Not available" else 0
+        gcp_cost = pricing_engine.get_service_price("GCP", gcp_service, volume_multiplier) if gcp_service != "Not available" else 0
+        
+        if aws_cost > 0:
+            service_costs["AWS"][category] = aws_cost
+        if azure_cost > 0:
+            service_costs["Azure"][category] = azure_cost
+        if gcp_cost > 0:
+            service_costs["GCP"][category] = gcp_cost
+        
+        service_comparison.append({
+            "service_category": category.replace("_", " ").title(),
+            "aws": aws_service,
+            "azure": azure_service,
+            "gcp": gcp_service,
+            "aws_cost": round(aws_cost, 2),
+            "azure_cost": round(azure_cost, 2),
+            "gcp_cost": round(gcp_cost, 2),
+        })
+    
+    # Calculate totals
+    cost_list = [
+        {"provider": "AWS", "estimated_monthly_cost": round(sum(service_costs["AWS"].values()), 2), "breakdown": service_costs["AWS"]},
+        {"provider": "Azure", "estimated_monthly_cost": round(sum(service_costs["Azure"].values()), 2), "breakdown": service_costs["Azure"]},
+        {"provider": "GCP", "estimated_monthly_cost": round(sum(service_costs["GCP"].values()), 2), "breakdown": service_costs["GCP"]},
+    ]
+    
+    return {
+        "scenario_name": scenario_data["name"],
+        "description": scenario_data["description"],
+        "typical_workloads": scenario_data["typical_workloads"],
+        "service_comparison": service_comparison,
+        "cost_estimates": cost_list,
+        "recommended_strategy": scenario_data["recommended_strategy"],
+        "cost_saving_tips": scenario_data["cost_saving_tips"]
+    }
+```
+
+Summary
+
+Change Benefit
+Service pricing moved to MultiCloudPricingEngine Centralized pricing logic, single source of truth
+Comprehensive service catalog Covers compute, serverless, storage, database, container, networking, security, messaging, data processing
+Smart price calculation Different pricing models for different service types (hourly, per-GB, per-request, etc.)
+Fallback mechanism Intelligent fallback based on service name patterns
+Volume scaling Prices scale with workload volume (low/medium/high)
+
+Now all pricing logic is centralized in MultiCloudPricingEngine, and the API endpoint simply calls pricing_engine.get_service_price() for each service!
+
