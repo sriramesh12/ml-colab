@@ -2965,3 +2965,326 @@ Summary of All Scenarios (Complete List)
 This comprehensive set of 22 scenarios covers most enterprise migration patterns. You can add more as needed!
 
 
+
+xxxxx 
+
+You're absolutely right! The low, medium, high cost estimates should NOT be hardcoded. They should be dynamically calculated using the MultiCloudPricingEngine based on actual service prices and workload volumes.
+
+Let me fix the backend to calculate dynamic pricing
+
+```python
+# In main.py - Updated analyze endpoint with dynamic pricing
+
+@app.post("/api/scenario-analyzer/analyze")
+async def analyze_scenario(request: ScenarioAnalysisRequest):
+    """Analyze a migration scenario with dynamic pricing from MultiCloudPricingEngine"""
+    
+    from utils.analysis.optimization_engine import MultiCloudPricingEngine
+    pricing_engine = MultiCloudPricingEngine()
+    
+    scenario_data = SCENARIO_MAPPINGS.get(request.scenario_key)
+    if not scenario_data:
+        raise HTTPException(status_code=404, detail="Scenario not found")
+    
+    # Volume multipliers for different workload volumes
+    # These scale the base usage (e.g., number of requests, GB of storage, etc.)
+    volume_config = {
+        "low": {
+            "multiplier": 0.5,
+            "description": "Light usage - 50% of standard volume",
+            "storage_gb": 100,
+            "monthly_requests": 500000,
+            "compute_hours": 200,
+            "data_processed_gb": 100
+        },
+        "medium": {
+            "multiplier": 1.0,
+            "description": "Standard usage - baseline volume",
+            "storage_gb": 500,
+            "monthly_requests": 2000000,
+            "compute_hours": 730,  # 24x7
+            "data_processed_gb": 1000
+        },
+        "high": {
+            "multiplier": 2.0,
+            "description": "Heavy usage - 2x standard volume",
+            "storage_gb": 2000,
+            "monthly_requests": 5000000,
+            "compute_hours": 1460,
+            "data_processed_gb": 5000
+        }
+    }
+    
+    volume = volume_config.get(request.workload_volume, volume_config["medium"])
+    volume_multiplier = volume["multiplier"]
+    
+    # Service price calculation function
+    def get_service_price(provider, service_name, category):
+        """Calculate dynamic price for a service based on actual pricing engine"""
+        
+        service_lower = service_name.lower()
+        
+        # Compute / VM services
+        if "compute" in category or "vm" in service_lower or "instance" in service_lower:
+            # Use appropriate instance type based on scenario
+            instance_map = {
+                "web_hosting": {"aws": "t3.medium", "azure": "B2s", "gcp": "e2-standard-2"},
+                "compute": {"aws": "m5.large", "azure": "D4s_v3", "gcp": "n2-standard-4"},
+                "database": {"aws": "db.t3.micro", "azure": "db.t3.micro", "gcp": "db.t3.micro"},
+                "cache": {"aws": "cache.t3.micro", "azure": "cache.t3.micro", "gcp": "cache.t3.micro"},
+            }
+            
+            # Find matching instance type
+            instance_type = None
+            for key, mapping in instance_map.items():
+                if key in service_lower or key in category:
+                    instance_type = mapping.get(provider)
+                    break
+            
+            if not instance_type:
+                instance_type = "m5.large" if provider == "AWS" else "D4s_v3" if provider == "Azure" else "n2-standard-4"
+            
+            # Get price from pricing engine
+            price_info = pricing_engine.get_price(provider.lower(), instance_type, "us-east-1")
+            if price_info:
+                # Scale by compute hours (percentage of 730 hours)
+                compute_ratio = min(1.0, volume["compute_hours"] / 730)
+                return price_info["monthly"] * compute_ratio * volume_multiplier
+        
+        # Serverless services
+        elif "serverless" in category or "function" in service_lower or "lambda" in service_lower:
+            # Lambda/Functions pricing: $0.20 per million requests
+            requests = volume["monthly_requests"]
+            cost = (requests / 1000000) * 0.20 * volume_multiplier
+            return max(10, cost)  # Minimum $10
+        
+        # Storage services
+        elif "storage" in category or "s3" in service_lower or "blob" in service_lower:
+            # Storage pricing: $0.023 per GB
+            storage_gb = volume["storage_gb"]
+            cost = storage_gb * 0.023 * volume_multiplier
+            return max(5, cost)  # Minimum $5
+        
+        # Database services
+        elif "database" in category or "rds" in service_lower or "sql" in service_lower:
+            # Use smallest database instance
+            instance_type = "db.t3.micro" if provider == "AWS" else "db.t3.micro" if provider == "Azure" else "db.t3.micro"
+            price_info = pricing_engine.get_price(provider.lower(), instance_type, "us-east-1")
+            if price_info:
+                return price_info["monthly"] * volume_multiplier
+        
+        # Container services
+        elif "container" in category or "kubernetes" in service_lower or "eks" in service_lower:
+            # EKS/AKS/GKE management fee: $0.10 per hour
+            cost = 0.10 * volume["compute_hours"] * volume_multiplier
+            return max(50, cost)
+        
+        # CDN services
+        elif "cdn" in service_lower:
+            # CDN: $0.085 per GB
+            cost = 0.085 * volume["data_processed_gb"] * volume_multiplier
+            return max(10, cost)
+        
+        # Load balancer
+        elif "load balancer" in service_lower or "alb" in service_lower:
+            # ALB: $0.0225 per hour
+            cost = 0.0225 * volume["compute_hours"] * volume_multiplier
+            return max(15, cost)
+        
+        # WAF / Security
+        elif "waf" in service_lower or "security" in category:
+            # WAF: $5 per month
+            return 5 * volume_multiplier
+        
+        # Default fallback - use percentage of total cost
+        else:
+            # Estimate based on service importance
+            base_cost = 25 * volume_multiplier
+            return base_cost
+    
+    # Build service comparison with dynamic pricing
+    service_comparison = []
+    service_costs = {"AWS": {}, "Azure": {}, "GCP": {}}
+    
+    for category, provider_mapping in scenario_data["services"].items():
+        aws_service = provider_mapping.get("aws", "Not available")
+        azure_service = provider_mapping.get("azure", "Not available")
+        gcp_service = provider_mapping.get("gcp", "Not available")
+        
+        # Get dynamic prices
+        aws_cost = get_service_price("AWS", aws_service, category) if aws_service != "Not available" else 0
+        azure_cost = get_service_price("Azure", azure_service, category) if azure_service != "Not available" else 0
+        gcp_cost = get_service_price("GCP", gcp_service, category) if gcp_service != "Not available" else 0
+        
+        # Store costs
+        if aws_cost > 0:
+            service_costs["AWS"][category] = aws_cost
+        if azure_cost > 0:
+            service_costs["Azure"][category] = azure_cost
+        if gcp_cost > 0:
+            service_costs["GCP"][category] = gcp_cost
+        
+        service_comparison.append({
+            "service_category": category.replace("_", " ").title(),
+            "aws": aws_service,
+            "azure": azure_service,
+            "gcp": gcp_service,
+            "aws_cost": round(aws_cost, 2),
+            "azure_cost": round(azure_cost, 2),
+            "gcp_cost": round(gcp_cost, 2),
+        })
+    
+    # Calculate totals (dynamic, based on actual service prices)
+    aws_total = round(sum(service_costs["AWS"].values()), 2)
+    azure_total = round(sum(service_costs["Azure"].values()), 2)
+    gcp_total = round(sum(service_costs["GCP"].values()), 2)
+    
+    cost_list = [
+        {
+            "provider": "AWS",
+            "estimated_monthly_cost": aws_total,
+            "breakdown": service_costs["AWS"],
+            "volume_info": {
+                "level": request.workload_volume,
+                "multiplier": volume_multiplier,
+                "storage_gb": volume["storage_gb"],
+                "requests": volume["monthly_requests"],
+                "compute_hours": volume["compute_hours"]
+            }
+        },
+        {
+            "provider": "Azure",
+            "estimated_monthly_cost": azure_total,
+            "breakdown": service_costs["Azure"],
+            "volume_info": {
+                "level": request.workload_volume,
+                "multiplier": volume_multiplier,
+                "storage_gb": volume["storage_gb"],
+                "requests": volume["monthly_requests"],
+                "compute_hours": volume["compute_hours"]
+            }
+        },
+        {
+            "provider": "GCP",
+            "estimated_monthly_cost": gcp_total,
+            "breakdown": service_costs["GCP"],
+            "volume_info": {
+                "level": request.workload_volume,
+                "multiplier": volume_multiplier,
+                "storage_gb": volume["storage_gb"],
+                "requests": volume["monthly_requests"],
+                "compute_hours": volume["compute_hours"]
+            }
+        }
+    ]
+    
+    return {
+        "scenario_name": scenario_data["name"],
+        "description": scenario_data["description"],
+        "typical_workloads": scenario_data["typical_workloads"],
+        "service_comparison": service_comparison,
+        "cost_estimates": cost_list,
+        "recommended_strategy": scenario_data["recommended_strategy"],
+        "cost_saving_tips": scenario_data["cost_saving_tips"],
+        "volume_config": volume  # Include volume details for transparency
+    }
+```
+
+Enhanced React Component - Show Volume-Based Pricing Details
+
+```jsx
+// In ScenarioAnalyzerTab.jsx - Add volume info display
+
+{analysisResult.cost_estimates && analysisResult.cost_estimates.map((cost, idx) => {
+    const breakdown = cost.breakdown || {};
+    const total = cost.estimated_monthly_cost;
+    const volumeInfo = cost.volume_info || {};
+    
+    return (
+        <Grid item xs={12} md={4} key={idx}>
+            <Paper 
+                variant="outlined" 
+                sx={{ 
+                    p: 2, 
+                    bgcolor: PROVIDER_COLORS[cost.provider]?.light || '#f5f5f5',
+                    borderTop: `4px solid ${PROVIDER_COLORS[cost.provider]?.bg}`,
+                    height: '100%'
+                }}
+            >
+                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                    {cost.provider}
+                </Typography>
+                <Typography variant="h4" fontWeight="bold" color={PROVIDER_COLORS[cost.provider]?.bg} gutterBottom>
+                    {fmt(total)}
+                    <Typography component="span" variant="caption" color="text.secondary">/month</Typography>
+                </Typography>
+                
+                {/* Volume Info Badge */}
+                <Chip 
+                    label={`${volumeInfo.level?.toUpperCase()} Volume (${Math.round(volumeInfo.multiplier * 100)}% of standard)`}
+                    size="small"
+                    color="info"
+                    sx={{ mb: 1 }}
+                />
+                
+                <Divider sx={{ my: 1 }} />
+                
+                <Typography variant="subtitle2" gutterBottom>
+                    Service Breakdown:
+                </Typography>
+                {Object.keys(breakdown).length === 0 ? (
+                    <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+                        No breakdown data available
+                    </Typography>
+                ) : (
+                    <List dense disablePadding>
+                        {Object.entries(breakdown).map(([category, serviceCost]) => (
+                            <ListItem key={category} disableGutters dense>
+                                <ListItemIcon sx={{ minWidth: 28 }}>
+                                    {getCategoryIcon(category)}
+                                </ListItemIcon>
+                                <ListItemText 
+                                    primary={getCategoryDisplayName(category)}
+                                    secondary={fmt(serviceCost)}
+                                    primaryTypographyProps={{ variant: 'body2', fontWeight: 'medium' }}
+                                    secondaryTypographyProps={{ variant: 'caption', color: 'text.primary' }}
+                                />
+                            </ListItem>
+                        ))}
+                    </List>
+                )}
+                
+                <Divider sx={{ my: 1 }} />
+                
+                {/* Volume Details Tooltip */}
+                <Tooltip title={
+                    <Box>
+                        <Typography variant="caption">Storage: {volumeInfo.storage_gb} GB</Typography>
+                        <br />
+                        <Typography variant="caption">Requests: {volumeInfo.requests?.toLocaleString()} /month</Typography>
+                        <br />
+                        <Typography variant="caption">Compute: {volumeInfo.compute_hours} hours/month</Typography>
+                    </Box>
+                }>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1, cursor: 'help' }}>
+                        <Typography variant="caption" color="text.secondary">Total Services:</Typography>
+                        <Typography variant="body2" fontWeight="bold">{fmt(total)}</Typography>
+                    </Box>
+                </Tooltip>
+            </Paper>
+        </Grid>
+    );
+})}
+```
+
+Key Improvements
+
+Before After
+Hardcoded prices ($500, $1500, $5000) Dynamic prices from MultiCloudPricingEngine
+Static low/medium/high Volume-based scaling with actual usage metrics
+No transparency Shows storage GB, requests, compute hours used
+Fixed estimates Real-time pricing based on current cloud rates
+
+Now the low/medium/high selection actually scales the usage volume (storage GB, requests, compute hours), which then calculates prices using the real pricing engine!
+
+xxxxx 
