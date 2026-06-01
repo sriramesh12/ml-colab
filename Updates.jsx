@@ -2614,3 +2614,354 @@ Volume scaling Prices scale with workload volume (low/medium/high)
 
 Now all pricing logic is centralized in MultiCloudPricingEngine, and the API endpoint simply calls pricing_engine.get_service_price() for each service!
 
+xxxxx 
+
+Absolutely! Let me expand the migration scenarios to cover more real-world workload types. Based on common enterprise migration patterns, here are additional scenarios you can add:
+
+Additional Migration Scenarios to Add
+
+```python
+# Add to SCENARIO_MAPPINGS in your main.py
+
+SCENARIO_MAPPINGS = {
+    # ... existing scenarios ...
+    
+    # ============================================================
+    # NEW SCENARIOS TO ADD
+    # ============================================================
+    
+    "sap_workloads": {
+        "name": "SAP Workloads",
+        "description": "SAP ERP, S/4HANA, and SAP Business Suite applications requiring high-performance computing and memory",
+        "typical_workloads": ["SAP ERP Central Component (ECC)", "SAP S/4HANA", "SAP BW/4HANA", "SAP CRM", "SAP SRM"],
+        "services": {
+            "compute": {"aws": "High Memory EC2 (u-* series)", "azure": "M-series / Mv2-series VMs", "gcp": "M1/M2/M3 ultra-memory machines"},
+            "database": {"aws": "RDS for SAP / HANA Cloud", "azure": "SAP HANA Large Instances", "gcp": "SAP HANA Certified VMs"},
+            "storage": {"aws": "io2 Block Express / FSx for NetApp", "azure": "Ultra Disk / NetApp Files", "gcp": "Hyperdisk Extreme / Filestore"},
+            "backup": {"aws": "AWS Backup for SAP", "azure": "Azure Backup for SAP HANA", "gcp": "Backup for SAP HANA"},
+            "monitoring": {"aws": "CloudWatch with SAP Agent", "azure": "Azure Monitor for SAP", "gcp": "Cloud Monitoring with SAP Agent"},
+            "disaster_recovery": {"aws": "CloudEndure / Elastic DR", "azure": "Azure Site Recovery", "gcp": "Disaster Recovery (DR) Service"}
+        },
+        "recommended_strategy": "SAP-certified infrastructure with HANA-optimized storage. Use large memory instances and ensure proper backup/disaster recovery.",
+        "cost_saving_tips": "Use reserved instances for predictable workloads, right-size memory allocation, implement tiered storage for logs",
+        "cost_estimates": {
+            "low": {"aws": 2000, "azure": 2200, "gcp": 2100},
+            "medium": {"aws": 5000, "azure": 5500, "gcp": 5200},
+            "high": {"aws": 15000, "azure": 16000, "gcp": 14800}
+        }
+    },
+    
+    "machine_learning": {
+        "name": "Machine Learning / AI Workloads",
+        "description": "ML model training, inference, data science notebooks, and AI pipelines",
+        "typical_workloads": ["Model training", "Batch inference", "Real-time predictions", "Jupyter notebooks", "Feature engineering"],
+        "services": {
+            "compute_gpu": {"aws": "P4/P5/G5 instances", "azure": "NCasT4_v3-series / NDm A100 v4", "gcp": "A2 / G2 VM families"},
+            "compute_cpu": {"aws": "C5/C6i instances", "azure": "F-series VMs", "gcp": "C2/C3 standard machines"},
+            "ml_platform": {"aws": "SageMaker", "azure": "Azure Machine Learning", "gcp": "Vertex AI"},
+            "model_registry": {"aws": "SageMaker Model Registry", "azure": "MLflow on Azure", "gcp": "Vertex AI Model Registry"},
+            "feature_store": {"aws": "SageMaker Feature Store", "azure": "Feature Store (preview)", "gcp": "Vertex AI Feature Store"},
+            "training_data": {"aws": "S3 + EFS", "azure": "Blob Storage + Azure Files", "gcp": "Cloud Storage + Filestore"},
+            "inference": {"aws": "SageMaker Endpoints / Lambda", "azure": "AKS / Container Instances", "gcp": "Cloud Run / Vertex AI Endpoints"},
+            "notebooks": {"aws": "SageMaker Notebooks", "azure": "Azure Notebooks / Databricks", "gcp": "Vertex AI Workbench"},
+            "mlops": {"aws": "SageMaker Pipelines", "azure": "Azure Pipelines + ML", "gcp": "Vertex AI Pipelines"}
+        },
+        "recommended_strategy": "Use GPU instances for training, serverless for inference. SageMaker/Azure ML/Vertex AI provide managed ML platforms.",
+        "cost_saving_tips": "Use spot instances for training, auto-scaling for inference, delete idle notebooks, use spot for non-production",
+        "cost_estimates": {
+            "low": {"aws": 500, "azure": 550, "gcp": 480},
+            "medium": {"aws": 2000, "azure": 2200, "gcp": 1900},
+            "high": {"aws": 8000, "azure": 8500, "gcp": 7800}
+        }
+    },
+    
+    "big_data_analytics": {
+        "name": "Big Data Analytics",
+        "description": "Large-scale data processing, analytics, and business intelligence workloads",
+        "typical_workloads": ["Hadoop clusters", "Spark jobs", "Presto/Trino queries", "Hive data warehouses", "Real-time analytics"],
+        "services": {
+            "data_processing": {"aws": "EMR", "azure": "HDInsight / Databricks", "gcp": "Dataproc"},
+            "data_warehouse": {"aws": "Redshift", "azure": "Synapse Analytics", "gcp": "BigQuery"},
+            "data_lake": {"aws": "S3 + Lake Formation", "azure": "Data Lake Storage", "gcp": "Cloud Storage + Dataplex"},
+            "query_engine": {"aws": "Athena", "azure": "Synapse Serverless", "gcp": "BigQuery Omni"},
+            "streaming": {"aws": "Kinesis / MSK", "azure": "Event Hubs", "gcp": "Pub/Sub"},
+            "orchestration": {"aws": "MWAA (Airflow)", "azure": "Data Factory", "gcp": "Cloud Composer"},
+            "catalog": {"aws": "Glue Catalog", "azure": "Purview", "gcp": "Dataplex Catalog"}
+        },
+        "recommended_strategy": "Serverless-first approach for variable workloads. Use columnar formats (Parquet/ORC) for cost efficiency.",
+        "cost_saving_tips": "Use spot/preemptible for batch processing, partition data, use columnar compression, auto-suspend clusters",
+        "cost_estimates": {
+            "low": {"aws": 600, "azure": 650, "gcp": 550},
+            "medium": {"aws": 2000, "azure": 2200, "gcp": 1800},
+            "high": {"aws": 6000, "azure": 6500, "gcp": 5500}
+        }
+    },
+    
+    "media_processing": {
+        "name": "Media Processing & Streaming",
+        "description": "Video encoding, transcoding, streaming, and content delivery workloads",
+        "typical_workloads": ["Video encoding/transcoding", "Live streaming", "Video on demand (VOD)", "Image processing", "Audio processing"],
+        "services": {
+            "compute": {"aws": "G4/G5 instances (GPU)", "azure": "NV / NC-series VMs", "gcp": "G2 / A2 VMs"},
+            "encoding": {"aws": "MediaConvert", "azure": "Media Services", "gcp": "Transcoder API"},
+            "streaming": {"aws": "MediaLive / MediaPackage", "azure": "Media Services Live", "gcp": "Live Stream API"},
+            "cdn": {"aws": "CloudFront", "azure": "Azure CDN", "gcp": "Cloud CDN"},
+            "storage": {"aws": "S3 + EFS", "azure": "Blob Storage + Azure Files", "gcp": "Cloud Storage + Filestore"},
+            "workflow": {"aws": "Step Functions / Elemental", "azure": "Media Services Workflows", "gcp": "Transcoder + Workflows"},
+            "ai_analysis": {"aws": "Rekognition", "azure": "Video Indexer", "gcp": "Video Intelligence API"}
+        },
+        "recommended_strategy": "Use GPU-optimized instances for encoding. Cloud-native media services provide cost-effective processing.",
+        "cost_saving_tips": "Use spot for batch encoding, implement tiered storage, use CDN for distribution, compress outputs",
+        "cost_estimates": {
+            "low": {"aws": 400, "azure": 450, "gcp": 420},
+            "medium": {"aws": 1500, "azure": 1600, "gcp": 1480},
+            "high": {"aws": 5000, "azure": 5500, "gcp": 4800}
+        }
+    },
+    
+    "iot_backend": {
+        "name": "IoT Backend",
+        "description": "Internet of Things (IoT) device connectivity, data ingestion, processing, and analytics",
+        "typical_workloads": ["Device connectivity", "Telemetry ingestion", "Real-time processing", "Device management", "OTA updates"],
+        "services": {
+            "device_connectivity": {"aws": "IoT Core", "azure": "IoT Hub", "gcp": "IoT Core (deprecated) / Cloud IoT"},
+            "data_ingestion": {"aws": "Kinesis / MSK", "azure": "Event Hubs", "gcp": "Pub/Sub"},
+            "processing": {"aws": "Lambda / Kinesis Analytics", "azure": "Functions / Stream Analytics", "gcp": "Cloud Functions / Dataflow"},
+            "device_registry": {"aws": "IoT Device Registry", "azure": "IoT Hub Device Registry", "gcp": "Cloud IoT Device Manager"},
+            "rule_engine": {"aws": "IoT Rules Engine", "azure": "IoT Hub Routing", "gcp": "Cloud IoT + Pub/Sub"},
+            "analytics": {"aws": "Timestream", "azure": "Time Series Insights", "gcp": "BigQuery"},
+            "ota_updates": {"aws": "IoT Device Management", "azure": "Device Update for IoT Hub", "gcp": "Cloud IoT + Cloud Functions"}
+        },
+        "recommended_strategy": "AWS IoT Core is most mature. Azure IoT Hub strong for enterprise. GCP shifting to partner solutions.",
+        "cost_saving_tips": "Batch message processing, use Basic Tier for non-telemetry, implement message filtering at edge",
+        "cost_estimates": {
+            "low": {"aws": 200, "azure": 220, "gcp": 250},
+            "medium": {"aws": 800, "azure": 850, "gcp": 900},
+            "high": {"aws": 3000, "azure": 3200, "gcp": 3500}
+        }
+    },
+    
+    "hybrid_cloud": {
+        "name": "Hybrid Cloud Integration",
+        "description": "Hybrid cloud connecting on-premises infrastructure with cloud services",
+        "typical_workloads": ["Data center extension", "Cloud bursting", "Disaster recovery", "Legacy system integration"],
+        "services": {
+            "hybrid_connectivity": {"aws": "Direct Connect / VPN", "azure": "ExpressRoute / VPN Gateway", "gcp": "Cloud Interconnect / VPN"},
+            "hybrid_compute": {"aws": "Outposts", "azure": "Azure Stack HCI", "gcp": "Anthos on-prem"},
+            "identity": {"aws": "Directory Service / IAM Identity Center", "azure": "Azure AD Connect", "gcp": "Cloud Identity / AD Integration"},
+            "management": {"aws": "Systems Manager", "azure": "Azure Arc", "gcp": "Cloud Asset Management"},
+            "storage_sync": {"aws": "Storage Gateway / DataSync", "azure": "File Sync / Data Box", "gcp": "Transfer Service / Storage Transfer"},
+            "backup": {"aws": "Backup Gateway", "azure": "Azure Backup Server", "gcp": "Backup for GKE"},
+            "monitoring": {"aws": "CloudWatch Agent", "azure": "Azure Monitor Agent", "gcp": "Operations Agent"}
+        },
+        "recommended_strategy": "Azure Arc and AWS Outposts offer the most comprehensive hybrid solutions. Choose based on primary cloud provider.",
+        "cost_saving_tips": "Use VPN for low-bandwidth, Direct Connect/ExpressRoute for high-volume, use caching gateways for storage",
+        "cost_estimates": {
+            "low": {"aws": 300, "azure": 320, "gcp": 350},
+            "medium": {"aws": 1000, "azure": 1100, "gcp": 1200},
+            "high": {"aws": 4000, "azure": 4200, "gcp": 4500}
+        }
+    },
+    
+    "disaster_recovery": {
+        "name": "Disaster Recovery",
+        "description": "Cloud-based disaster recovery for on-premises or cloud-native applications",
+        "typical_workloads": ["DR orchestration", "Failover/failback", "Data replication", "RTO/RPO optimization"],
+        "services": {
+            "dr_orchestration": {"aws": "Elastic Disaster Recovery (DRS)", "azure": "Azure Site Recovery", "gcp": "Disaster Recovery (DR) Service"},
+            "replication": {"aws": "DRS agent-based replication", "azure": "ASR replication", "gcp": "DR Service replication"},
+            "compute_dr": {"aws": "EC2 / Elastic Inference", "azure": "VMs / VM Scale Sets", "gcp": "Compute Engine / MIGs"},
+            "storage_replication": {"aws": "S3 Cross-Region Replication", "azure": "Geo-redundant storage", "gcp": "Cloud Storage Dual-Region"},
+            "database_replication": {"aws": "RDS Cross-Region Read Replica", "azure": "SQL Geo-Replication", "gcp": "Cloud SQL Replicas"},
+            "dns_failover": {"aws": "Route 53 (DNS failover)", "azure": "Traffic Manager", "gcp": "Cloud DNS + Load Balancing"},
+            "monitoring": {"aws": "CloudWatch + Health Dashboard", "azure": "Azure Monitor + Service Health", "gcp": "Cloud Monitoring + Status Dashboard"}
+        },
+        "recommended_strategy": "Cloud-native DR services provide best RTO/RPO. Test failover regularly. Use pilot light for cost optimization.",
+        "cost_saving_tips": "Use pilot light warm standby, implement multi-region for critical workloads, use spot for non-critical DR testing",
+        "cost_estimates": {
+            "low": {"aws": 250, "azure": 280, "gcp": 300},
+            "medium": {"aws": 800, "azure": 850, "gcp": 900},
+            "high": {"aws": 2500, "azure": 2800, "gcp": 3000}
+        }
+    },
+    
+    "devops_ci_cd": {
+        "name": "DevOps / CI/CD Pipeline",
+        "description": "Cloud-native CI/CD pipelines, source control, build automation, and deployment services",
+        "typical_workloads": ["Source code management", "Build automation", "Container registry", "Deployment pipelines", "Artifact management"],
+        "services": {
+            "source_control": {"aws": "CodeCommit", "azure": "Azure Repos", "gcp": "Cloud Source Repositories"},
+            "build_service": {"aws": "CodeBuild", "azure": "Azure Pipelines", "gcp": "Cloud Build"},
+            "container_registry": {"aws": "ECR", "azure": "ACR", "gcp": "GCR / Artifact Registry"},
+            "deployment": {"aws": "CodeDeploy", "azure": "Azure Pipelines", "gcp": "Cloud Deploy"},
+            "pipeline_orchestration": {"aws": "CodePipeline", "azure": "Azure Pipelines", "gcp": "Cloud Build + Cloud Run"},
+            "artifact_management": {"aws": "CodeArtifact", "azure": "Azure Artifacts", "gcp": "Artifact Registry"},
+            "infrastructure_as_code": {"aws": "CloudFormation / CDK", "azure": "ARM / Bicep", "gcp": "Deployment Manager / Terraform"}
+        },
+        "recommended_strategy": "GitHub/Actions popular across clouds. Native CI/CD services tightly integrated with each cloud platform.",
+        "cost_saving_tips": "Use free tier for small projects, implement self-hosted runners for large builds, use caching for dependencies",
+        "cost_estimates": {
+            "low": {"aws": 50, "azure": 50, "gcp": 45},
+            "medium": {"aws": 200, "azure": 220, "gcp": 180},
+            "high": {"aws": 800, "azure": 850, "gcp": 750}
+        }
+    },
+    
+    "blockchain": {
+        "name": "Blockchain / DLT",
+        "description": "Blockchain and distributed ledger technology workloads",
+        "typical_workloads": ["Smart contracts", "Consortium networks", "Cryptocurrency mining", "Supply chain tracking"],
+        "services": {
+            "blockchain_service": {"aws": "Managed Blockchain", "azure": "Blockchain Service", "gcp": "Blockchain Node Engine (Beta)"},
+            "ledger_database": {"aws": "Quantum Ledger DB", "azure": "Confidential Ledger", "gcp": "No native service"},
+            "compute": {"aws": "EC2 (GPU for mining)", "azure": "VMs (GPU series)", "gcp": "Compute Engine (GPU)"},
+            "key_management": {"aws": "KMS", "azure": "Key Vault", "gcp": "Cloud KMS"},
+            "monitoring": {"aws": "CloudWatch", "azure": "Azure Monitor", "gcp": "Cloud Monitoring"}
+        },
+        "recommended_strategy": "AWS Managed Blockchain and Azure Blockchain Service offer enterprise blockchain. GCP has limited native services.",
+        "cost_saving_tips": "Use spot for non-critical nodes, implement auto-scaling, use reserved instances for stable workloads",
+        "cost_estimates": {
+            "low": {"aws": 300, "azure": 320, "gcp": 350},
+            "medium": {"aws": 1000, "azure": 1100, "gcp": 1200},
+            "high": {"aws": 4000, "azure": 4200, "gcp": 4500}
+        }
+    },
+    
+    "gaming": {
+        "name": "Gaming Servers",
+        "description": "Multiplayer game servers, matchmaking, and real-time game analytics",
+        "typical_workloads": ["Game server hosting", "Matchmaking services", "Leaderboards", "Player analytics", "Real-time chat"],
+        "services": {
+            "game_server_compute": {"aws": "GameLift", "azure": "PlayFab Multiplayer Servers", "gcp": "Agones on GKE"},
+            "matchmaking": {"aws": "GameLift FlexMatch", "azure": "PlayFab Matchmaking", "gcp": "Open Match (open source)"},
+            "player_data": {"aws": "DynamoDB / ElastiCache", "azure": "Cosmos DB / Redis Cache", "gcp": "Firestore / Memorystore"},
+            "leaderboards": {"aws": "ElastiCache (Redis Sorted Sets)", "azure": "Redis Cache", "gcp": "Memorystore"},
+            "analytics": {"aws": "Kinesis + QuickSight", "azure": "Event Hubs + Power BI", "gcp": "Pub/Sub + Looker Studio"},
+            "real_time_messaging": {"aws": "AppSync / SQS", "azure": "SignalR Service", "gcp": "Firebase Realtime Database"}
+        },
+        "recommended_strategy": "GameLift (AWS) and PlayFab (Azure) are purpose-built for gaming. Agones (GCP) is open-source but requires more setup.",
+        "cost_saving_tips": "Use spot for game servers during off-peak, implement auto-scaling, use reserved instances for baseline capacity",
+        "cost_estimates": {
+            "low": {"aws": 400, "azure": 450, "gcp": 420},
+            "medium": {"aws": 1500, "azure": 1600, "gcp": 1480},
+            "high": {"aws": 5000, "azure": 5500, "gcp": 4800}
+        }
+    },
+    
+    "financial_services": {
+        "name": "Financial Services / Trading",
+        "description": "High-performance trading systems, real-time market data processing, compliance workloads",
+        "typical_workloads": ["Algorithmic trading", "Market data processing", "Risk analytics", "Compliance reporting", "Fraud detection"],
+        "services": {
+            "high_perf_compute": {"aws": "C6gn / C7g instances", "azure": "HC/HB-series VMs", "gcp": "C2/C3 high-frequency VMs"},
+            "low_latency_network": {"aws": "EFA / Placement Groups", "azure": "InfiniBand / Proximity groups", "gcp": "Compact placement / Tier 1 network"},
+            "real_time_analytics": {"aws": "Kinesis + Timestream", "azure": "Event Hubs + Time Series", "gcp": "Pub/Sub + BigQuery"},
+            "fraud_detection": {"aws": "Fraud Detector", "azure": "Fraud Protection", "gcp": "None native"},
+            "compliance": {"aws": "Audit Manager / Artifact", "azure": "Compliance Manager", "gcp": "Compliance Reports Manager"},
+            "data_sovereignty": {"aws": "AWS GovCloud / Local Zones", "azure": "Azure Government", "gcp": "Assured Workloads"}
+        },
+        "recommended_strategy": "Use high-frequency compute instances with low-latency networking. AWS has strongest financial services ecosystem.",
+        "cost_saving_tips": "Use reserved instances for predictable workloads, implement spot for non-critical batch jobs",
+        "cost_estimates": {
+            "low": {"aws": 800, "azure": 850, "gcp": 820},
+            "medium": {"aws": 3000, "azure": 3200, "gcp": 3100},
+            "high": {"aws": 10000, "azure": 10500, "gcp": 9800}
+        }
+    },
+    
+    "healthcare": {
+        "name": "Healthcare / Life Sciences",
+        "description": "HIPAA-compliant healthcare workloads, genomic sequencing, medical imaging, and EHR systems",
+        "typical_workloads": ["Electronic Health Records (EHR)", "Medical imaging (PACS)", "Genomic sequencing", "Clinical trials", "HIPAA compliance"],
+        "services": {
+            "hipaa_compute": {"aws": "EC2 (HIPAA eligible)", "azure": "VMs (HIPAA eligible)", "gcp": "Compute Engine (HIPAA eligible)"},
+            "medical_imaging": {"aws": "HealthImaging", "azure": "Medical Imaging Server", "gcp": "Cloud Healthcare API"},
+            "genomics": {"aws": "HealthOmics", "azure": "Genomics (retiring)", "gcp": "Life Sciences (Cloud Life Sciences)"},
+            "ehr_integration": {"aws": "HealthLake", "azure": "FHIR Server", "gcp": "Healthcare API (FHIR)"},
+            "compliance": {"aws": "Audit Manager (HIPAA)", "azure": "Compliance Manager", "gcp": "Assured Workloads"},
+            "ml_healthcare": {"aws": "Comprehend Medical", "azure": "Health Insights", "gcp": "Healthcare Natural Language"}
+        },
+        "recommended_strategy": "All three clouds support HIPAA. AWS HealthLake and Azure Health Insights provide strong healthcare focus.",
+        "cost_saving_tips": "Use lifecycle policies for medical images, implement tiered storage for genomic data",
+        "cost_estimates": {
+            "low": {"aws": 600, "azure": 650, "gcp": 620},
+            "medium": {"aws": 2000, "azure": 2200, "gcp": 2100},
+            "high": {"aws": 8000, "azure": 8500, "gcp": 8200}
+        }
+    },
+    
+    "retail_ecommerce": {
+        "name": "Retail / E-commerce",
+        "description": "E-commerce platforms, inventory management, personalization, and recommendation engines",
+        "typical_workloads": ["Product catalog", "Shopping cart", "Order processing", "Inventory management", "Recommendations", "Personalization"],
+        "services": {
+            "web_serving": {"aws": "ECS / EC2 + ALB", "azure": "AKS + App Gateway", "gcp": "GKE + Cloud Load Balancing"},
+            "caching": {"aws": "ElastiCache (Redis)", "azure": "Redis Cache", "gcp": "Memorystore"},
+            "search": {"aws": "OpenSearch", "azure": "Cognitive Search", "gcp": "Vertex AI Search"},
+            "recommendations": {"aws": "Personalize", "azure": "Personalizer", "gcp": "Recommendations AI"},
+            "inventory_db": {"aws": "DynamoDB", "azure": "Cosmos DB", "gcp": "Firestore"},
+            "order_processing": {"aws": "Step Functions + SQS", "azure": "Durable Functions + Service Bus", "gcp": "Workflows + Pub/Sub"},
+            "analytics": {"aws": "QuickSight", "azure": "Power BI Embedded", "gcp": "Looker Studio"}
+        },
+        "recommended_strategy": "AWS Personalize and Azure Personalizer provide AI-driven recommendations. Use serverless for seasonal scaling.",
+        "cost_saving_tips": "Implement auto-scaling for holiday peaks, use CDN for static assets, use spot for batch inventory updates",
+        "cost_estimates": {
+            "low": {"aws": 300, "azure": 320, "gcp": 310},
+            "medium": {"aws": 1200, "azure": 1300, "gcp": 1250},
+            "high": {"aws": 4000, "azure": 4200, "gcp": 4100}
+        }
+    },
+    
+    "education_elearning": {
+        "name": "Education / E-Learning",
+        "description": "Online learning platforms, video streaming, assessments, and student management systems",
+        "typical_workloads": ["Course management (LMS)", "Video streaming", "Quizzes/assessments", "Student analytics", "Real-time collaboration"],
+        "services": {
+            "lms_compute": {"aws": "EC2 / ECS", "azure": "App Service / AKS", "gcp": "Compute Engine / GKE"},
+            "video_streaming": {"aws": "MediaConvert + CloudFront", "azure": "Media Services + CDN", "gcp": "Transcoder + Cloud CDN"},
+            "database": {"aws": "RDS / DynamoDB", "azure": "SQL Database / Cosmos DB", "gcp": "Cloud SQL / Firestore"},
+            "real_time_collab": {"aws": "AppSync", "azure": "SignalR Service", "gcp": "Firebase Realtime DB"},
+            "content_storage": {"aws": "S3 + CloudFront", "azure": "Blob Storage + CDN", "gcp": "Cloud Storage + CDN"},
+            "analytics": {"aws": "QuickSight", "azure": "Power BI", "gcp": "Looker Studio"},
+            "ai_grading": {"aws": "Textract / Comprehend", "azure": "Form Recognizer", "gcp": "Document AI"}
+        },
+        "recommended_strategy": "Use CDN for video content, serverless for quizzes, managed databases for student data.",
+        "cost_saving_tips": "Use reserved instances for baseline capacity, implement CDN for video delivery",
+        "cost_estimates": {
+            "low": {"aws": 200, "azure": 220, "gcp": 210},
+            "medium": {"aws": 800, "azure": 850, "gcp": 820},
+            "high": {"aws": 2500, "azure": 2700, "gcp": 2600}
+        }
+    }
+}
+```
+
+Summary of All Scenarios (Complete List)
+
+# Scenario Best For
+1 Mainframe Batch Processing COBOL, legacy batch jobs
+2 .NET Application Windows/.NET workloads
+3 Java Application Spring Boot, Tomcat, Kafka
+4 Web Portal E-commerce, customer portals
+5 ETL Pipeline Data integration, transformation
+6 Microservices Containerized apps, Kubernetes
+7 Data Warehouse Analytics, BI, reporting
+8 Mobile Backend iOS/Android app backends
+9 SAP Workloads SAP ERP, S/4HANA
+10 Machine Learning / AI Model training, inference
+11 Big Data Analytics Hadoop, Spark, Hive
+12 Media Processing Video encoding, streaming
+13 IoT Backend Device connectivity, telemetry
+14 Hybrid Cloud On-prem integration
+15 Disaster Recovery DR, business continuity
+16 DevOps / CI/CD Build pipelines, IaC
+17 Blockchain / DLT Smart contracts, ledgers
+18 Gaming Servers Multiplayer games
+19 Financial Services Trading, real-time analytics
+20 Healthcare / Life Sciences HIPAA, medical imaging
+21 Retail / E-commerce Product catalog, orders
+22 Education / E-Learning LMS, video streaming
+
+This comprehensive set of 22 scenarios covers most enterprise migration patterns. You can add more as needed!
+
+
