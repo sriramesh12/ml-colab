@@ -1,6 +1,82 @@
 
 xxxxx 
 
+You're absolutely right! For simplicity and consistency, we should use US East (N. Virginia) as the baseline region for all providers. This makes:
+
+1. Apple-to-apple comparison - Same region for all providers
+2. Simpler tooltips - No region variation complexity
+3. Verifiable - Users can check against public pricing for that region
+
+Region Strategy
+
+Provider Baseline Region Region Code
+AWS US East (N. Virginia) us-east-1
+Azure East US eastus
+GCP US East (N. Virginia) / us-east4 us-east4
+
+Updated Tooltip (No Region Mention - Simpler)
+
+```jsx
+<Tooltip 
+    title={
+        <Box sx={{ p: 0.5 }}>
+            <Typography variant="caption" display="block" fontWeight="bold">
+                {getCategoryDisplayName(category)} Pricing Details
+            </Typography>
+            <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                <strong>Formula:</strong> {tooltipInfo.formula}
+            </Typography>
+            <Typography variant="caption" display="block">
+                <strong>Rate:</strong> {tooltipInfo.rate}
+            </Typography>
+            <Typography variant="caption" display="block">
+                <strong>Model:</strong> {tooltipInfo.model}
+            </Typography>
+            <Divider sx={{ my: 0.5 }} />
+            <Typography variant="caption" display="block" sx={{ color: '#4caf50' }}>
+                = {fmt(serviceCost)}/month
+            </Typography>
+            <Typography variant="caption" display="block" sx={{ mt: 0.5, color: '#999', fontSize: '10px' }}>
+                Based on US East pricing
+            </Typography>
+        </Box>
+    }
+    arrow
+    placement="right"
+>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, cursor: 'help' }}>
+        {getCategoryIcon(category)}
+        <Typography variant="body2" sx={{ borderBottom: '1px dashed #999' }}>
+            {getCategoryDisplayName(category)}
+        </Typography>
+    </Box>
+</Tooltip>
+```
+
+Why US East Baseline is Sufficient
+
+Factor Why it works
+Comparison All providers compared on same region
+Price ranking Regional price differences are consistent across providers
+User expectation Most users are familiar with US East as default
+Verification Public pricing pages use US East as reference
+
+Add a Small Note in the Footer
+
+```jsx
+// At the bottom of the Accordion, add a note
+<Alert severity="info" sx={{ mt: 2, py: 0, '& .MuiAlert-message': { py: 0.5 } }}>
+    <Typography variant="caption">
+        💡 All prices based on <strong>US East (N. Virginia)</strong> region pricing. 
+        Regional variations may apply but relative comparisons remain consistent.
+    </Typography>
+</Alert>
+```
+
+This keeps it simple, verifiable, and consistent across all providers!
+
+xxxxx 
+
 Great question! The Total in the Accordion summary represents the sum of all providers' estimated monthly costs - it's the combined total if you were to run ALL three providers simultaneously (which you wouldn't). This is actually misleading because you would only choose ONE provider, not all three.
 
 Let me clarify and fix this:
