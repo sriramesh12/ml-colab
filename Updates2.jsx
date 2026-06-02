@@ -1,3 +1,120 @@
+xxxxx 
+
+The volume badges were working inside the individual provider boxes because each provider's cost.volume_info was populated from the backend. When we moved them to the Accordion summary, we started using analysisResult.volume_config which wasn't being sent from the backend.
+
+Let me fix this by using the existing volume_info from any provider (they all have the same values):
+
+Quick Fix - Use volume_info from first provider
+
+```jsx
+// In ScenarioAnalyzerTab.jsx - Use volume_info from first provider
+
+<Accordion defaultExpanded={true} sx={{ mb: 3 }}>
+    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', pr: 2, flexWrap: 'wrap', gap: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <Typography variant="h6" fontWeight="bold">💰 Cost Breakdown by Provider</Typography>
+                <Chip 
+                    label={`Total: ${fmt(analysisResult.cost_estimates?.reduce((sum, c) => sum + c.estimated_monthly_cost, 0) || 0)}`} 
+                    size="small" 
+                    color="info" 
+                />
+            </Box>
+            
+            {/* Volume Badges - Take from first provider's volume_info (all have same values) */}
+            {analysisResult.cost_estimates?.[0]?.volume_info && (
+                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                    <Tooltip title="Workload volume level">
+                        <Chip 
+                            label={`${analysisResult.cost_estimates[0].volume_info.level?.toUpperCase()} Volume`}
+                            size="small"
+                            color={analysisResult.cost_estimates[0].volume_info.level === 'high' ? 'error' : 
+                                   analysisResult.cost_estimates[0].volume_info.level === 'medium' ? 'warning' : 'success'}
+                            variant="outlined"
+                        />
+                    </Tooltip>
+                    <Tooltip title={`${Math.round(analysisResult.cost_estimates[0].volume_info.multiplier * 100)}% of standard volume`}>
+                        <Chip 
+                            label={`${Math.round(analysisResult.cost_estimates[0].volume_info.multiplier * 100)}% Scale`}
+                            size="small"
+                            variant="outlined"
+                        />
+                    </Tooltip>
+                    <Tooltip title="Monthly requests">
+                        <Chip 
+                            label={`📊 ${(analysisResult.cost_estimates[0].volume_info.requests / 1000000).toFixed(1)}M req`}
+                            size="small"
+                            variant="outlined"
+                        />
+                    </Tooltip>
+                    <Tooltip title="Storage volume">
+                        <Chip 
+                            label={`💾 ${analysisResult.cost_estimates[0].volume_info.storage_gb} GB`}
+                            size="small"
+                            variant="outlined"
+                        />
+                    </Tooltip>
+                    <Tooltip title="Compute hours">
+                        <Chip 
+                            label={`⚡ ${analysisResult.cost_estimates[0].volume_info.compute_hours} hrs`}
+                            size="small"
+                            variant="outlined"
+                        />
+                    </Tooltip>
+                </Box>
+            )}
+        </Box>
+    </AccordionSummary>
+    
+    <AccordionDetails>
+        {/* 3-column grid for providers - NO volume badges inside */}
+        <Grid container spacing={2}>
+            {analysisResult.cost_estimates && analysisResult.cost_estimates.map((cost, idx) => {
+                // ... rest of the code without volume badges inside ...
+            })}
+        </Grid>
+    </AccordionDetails>
+</Accordion>
+```
+
+Or Add Fallback in the Component
+
+```jsx
+// Safer approach with fallback values
+const getVolumeInfo = () => {
+    // Try to get from first provider
+    if (analysisResult.cost_estimates?.[0]?.volume_info) {
+        return analysisResult.cost_estimates[0].volume_info;
+    }
+    // Fallback based on workloadVolume prop
+    if (workloadVolume === 'low') {
+        return { level: 'low', multiplier: 0.5, requests: 500000, storage_gb: 100, compute_hours: 200 };
+    }
+    if (workloadVolume === 'high') {
+        return { level: 'high', multiplier: 2.0, requests: 5000000, storage_gb: 2000, compute_hours: 1460 };
+    }
+    return { level: 'medium', multiplier: 1.0, requests: 2000000, storage_gb: 500, compute_hours: 730 };
+};
+
+// Then use it
+const volumeInfo = getVolumeInfo();
+
+<Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+    <Tooltip title="Workload volume level">
+        <Chip 
+            label={`${volumeInfo.level?.toUpperCase()} Volume`}
+            size="small"
+            color={volumeInfo.level === 'high' ? 'error' : volumeInfo.level === 'medium' ? 'warning' : 'success'}
+            variant="outlined"
+        />
+    </Tooltip>
+    {/* ... rest of badges ... */}
+</Box>
+```
+
+The issue was that analysisResult.volume_config didn't exist in the API response, but each provider's cost.volume_info does exist (since it was working inside the grid boxes). So we just need to read from analysisResult.cost_estimates[0].volume_info instead.
+xxxxx 
+
 Perfect idea! Let me move the volume badges to the Accordion summary so they appear once at the top, not repeated for each provider.
 
 Updated Code - Volume Badges in Accordion Summary
