@@ -1,5 +1,140 @@
 
 xxxxx 
+Yes! Tooltip on individual service component (each row in the service breakdown table) is much more useful because:
+
+1. Each service has different pricing models (compute vs storage vs database)
+2. Users can verify specific costs they're concerned about
+3. Provides granular transparency
+
+Tooltip on Individual Service Rows
+
+```jsx
+// In the Service Breakdown Table - Add tooltip to each service row
+
+<TableBody>
+    {Object.entries(breakdown).map(([category, serviceCost]) => {
+        const servicePercent = (serviceCost / total * 100).toFixed(1);
+        
+        // Get service-specific details for tooltip
+        const getServiceTooltip = (category, provider, volumeInfo) => {
+            const tooltips = {
+                'compute': {
+                    formula: `${volumeInfo?.compute_hours || 730} hours × $0.096/hour`,
+                    rate: '$0.096/hour (m5.large / D4s_v3 / n2-standard-4)',
+                    model: 'On-Demand'
+                },
+                'storage': {
+                    formula: `${volumeInfo?.storage_gb || 500} GB × $0.023/GB`,
+                    rate: '$0.023/GB (S3 Standard / Blob Hot / Cloud Storage)',
+                    model: 'Usage-based'
+                },
+                'database': {
+                    formula: `${volumeInfo?.compute_hours || 730} hours × $0.015/hour (db.t3.micro)`,
+                    rate: '$0.015/hour + storage',
+                    model: 'On-Demand'
+                },
+                'cdn': {
+                    formula: `${(volumeInfo?.monthly_requests / 1000000) || 2}M requests × $0.085/GB`,
+                    rate: '$0.085/GB + $0.01/10k requests',
+                    model: 'Pay-as-you-go'
+                }
+            };
+            return tooltips[category] || {
+                formula: `${serviceCost} based on standard pricing`,
+                rate: 'Standard cloud rate',
+                model: 'Standard'
+            };
+        };
+        
+        const tooltipInfo = getServiceTooltip(category, provider, volumeInfo);
+        
+        return (
+            <TableRow key={category}>
+                <TableCell>
+                    <Tooltip 
+                        title={
+                            <Box sx={{ p: 0.5 }}>
+                                <Typography variant="caption" display="block" fontWeight="bold">
+                                    {getCategoryDisplayName(category)} Pricing Details
+                                </Typography>
+                                <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                                    <strong>Formula:</strong> {tooltipInfo.formula}
+                                </Typography>
+                                <Typography variant="caption" display="block">
+                                    <strong>Rate:</strong> {tooltipInfo.rate}
+                                </Typography>
+                                <Typography variant="caption" display="block">
+                                    <strong>Model:</strong> {tooltipInfo.model}
+                                </Typography>
+                                <Typography variant="caption" display="block" sx={{ mt: 0.5, color: '#4caf50' }}>
+                                    = {fmt(serviceCost)}/month
+                                </Typography>
+                            </Box>
+                        }
+                        arrow
+                        placement="right"
+                    >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, cursor: 'help' }}>
+                            {getCategoryIcon(category)}
+                            <Typography variant="body2" sx={{ borderBottom: '1px dashed #999' }}>
+                                {getCategoryDisplayName(category)}
+                            </Typography>
+                        </Box>
+                    </Tooltip>
+                </TableCell>
+                <TableCell align="right">{fmt(serviceCost)}</TableCell>
+                <TableCell align="right">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, justifyContent: 'flex-end' }}>
+                        <LinearProgress 
+                            variant="determinate" 
+                            value={Math.min(100, servicePercent)} 
+                            sx={{ width: 50, height: 4, borderRadius: 2 }}
+                        />
+                        <Typography variant="caption" color="text.secondary">{servicePercent}%</Typography>
+                    </Box>
+                </TableCell>
+            </TableRow>
+        );
+    })}
+</TableBody>
+```
+
+Hover Behavior
+
+```
+User hovers over "Compute" text in any provider's service table:
+                    ↓
+    ┌─────────────────────────────────────────────────────┐
+    │  Compute Pricing Details                            │
+    │  Formula: 730 hours × $0.096/hour                   │
+    │  Rate: $0.096/hour (m5.large / D4s_v3)              │
+    │  Model: On-Demand                                   │
+    │  = $70.08/month                                     │
+    └─────────────────────────────────────────────────────┘
+```
+
+Visual Indicator
+
+The service name gets a dotted underline to indicate it's hoverable:
+
+```jsx
+<Typography variant="body2" sx={{ borderBottom: '1px dashed #999', cursor: 'help' }}>
+    {getCategoryDisplayName(category)}
+</Typography>
+```
+
+Benefits
+
+Aspect Benefit
+Per-service granularity Users can verify compute vs storage separately
+Non-intrusive Extra info only appears on demand
+Visual cue Dotted line shows where to hover
+Consistent Works the same for all providers
+
+This way, users can hover over any service (Compute, Storage, Database, etc.) in any provider's table and see exactly how that cost was calculated!
+
+
+xxxxx 
 
 You're absolutely right! For simplicity and consistency, we should use US East (N. Virginia) as the baseline region for all providers. This makes:
 
