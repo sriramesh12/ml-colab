@@ -1,4 +1,228 @@
- a single accordion that contains all three providers side-by-side in a grid layout for easy comparison. That's much better for comparison!
+Perfect idea! Let me move the volume badges to the Accordion summary so they appear once at the top, not repeated for each provider.
+
+Updated Code - Volume Badges in Accordion Summary
+
+```jsx
+// In ScenarioAnalyzerTab.jsx - Volume badges moved to Accordion summary
+
+<Accordion defaultExpanded={true} sx={{ mb: 3 }}>
+    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', pr: 2, flexWrap: 'wrap', gap: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <Typography variant="h6" fontWeight="bold">💰 Cost Breakdown by Provider</Typography>
+                <Chip 
+                    label={`Total: ${fmt(analysisResult.cost_estimates.reduce((sum, c) => sum + c.estimated_monthly_cost, 0))}`} 
+                    size="small" 
+                    color="info" 
+                />
+            </Box>
+            
+            {/* Volume Badges - Now in Accordion Summary (appears once) */}
+            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                <Tooltip title="Workload volume level">
+                    <Chip 
+                        label={`${analysisResult.volume_config?.level?.toUpperCase()} Volume`}
+                        size="small"
+                        color={analysisResult.volume_config?.level === 'high' ? 'error' : analysisResult.volume_config?.level === 'medium' ? 'warning' : 'success'}
+                        variant="outlined"
+                    />
+                </Tooltip>
+                <Tooltip title={`${Math.round(analysisResult.volume_config?.multiplier * 100)}% of standard volume`}>
+                    <Chip 
+                        label={`${Math.round(analysisResult.volume_config?.multiplier * 100)}% Scale`}
+                        size="small"
+                        variant="outlined"
+                    />
+                </Tooltip>
+                <Tooltip title="Monthly requests">
+                    <Chip 
+                        label={`📊 ${(analysisResult.volume_config?.monthly_requests / 1000000).toFixed(1)}M req`}
+                        size="small"
+                        variant="outlined"
+                    />
+                </Tooltip>
+                <Tooltip title="Storage volume">
+                    <Chip 
+                        label={`💾 ${analysisResult.volume_config?.storage_gb} GB`}
+                        size="small"
+                        variant="outlined"
+                    />
+                </Tooltip>
+                <Tooltip title="Compute hours">
+                    <Chip 
+                        label={`⚡ ${analysisResult.volume_config?.compute_hours} hrs`}
+                        size="small"
+                        variant="outlined"
+                    />
+                </Tooltip>
+            </Box>
+        </Box>
+    </AccordionSummary>
+    
+    <AccordionDetails>
+        {/* 3-column grid for providers - NO volume badges inside */}
+        <Grid container spacing={2}>
+            {analysisResult.cost_estimates && analysisResult.cost_estimates.map((cost, idx) => {
+                const breakdown = cost.breakdown || {};
+                const total = cost.estimated_monthly_cost;
+                const provider = cost.provider;
+                
+                // Calculate provider comparisons
+                const providers = analysisResult.cost_estimates;
+                const cheapestProvider = providers.reduce((a, b) => 
+                    a.estimated_monthly_cost < b.estimated_monthly_cost ? a : b
+                );
+                const mostExpensiveProvider = providers.reduce((a, b) => 
+                    a.estimated_monthly_cost > b.estimated_monthly_cost ? a : b
+                );
+                
+                // Calculate savings
+                let savingsPercent = 0;
+                let savingsAmount = 0;
+                if (cost.provider === cheapestProvider?.provider) {
+                    savingsAmount = mostExpensiveProvider?.estimated_monthly_cost - cheapestProvider?.estimated_monthly_cost;
+                    savingsPercent = (savingsAmount / mostExpensiveProvider?.estimated_monthly_cost * 100).toFixed(0);
+                }
+                
+                return (
+                    <Grid item xs={12} md={4} key={idx}>
+                        <Paper 
+                            variant="outlined" 
+                            sx={{ 
+                                p: 1.5, 
+                                height: '100%',
+                                bgcolor: PROVIDER_COLORS[cost.provider]?.light || '#fafafa',
+                                borderTop: `3px solid ${PROVIDER_COLORS[cost.provider]?.bg}`,
+                            }}
+                        >
+                            {/* Provider Header */}
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                                <Typography variant="h6" fontWeight="bold">
+                                    {cost.provider}
+                                </Typography>
+                                {cost.provider === cheapestProvider?.provider && (
+                                    <Tooltip title={`${savingsPercent}% cheaper than ${mostExpensiveProvider?.provider}`}>
+                                        <Chip label="Best Value" size="small" color="success" icon={<CheckCircleIcon />} />
+                                    </Tooltip>
+                                )}
+                            </Box>
+                            
+                            {/* Total Cost */}
+                            <Typography variant="h4" fontWeight="bold" color={PROVIDER_COLORS[cost.provider]?.bg} gutterBottom>
+                                {fmt(total)}
+                                <Typography component="span" variant="caption" color="text.secondary">/month</Typography>
+                            </Typography>
+                            
+                            {/* Percentage of total */}
+                            <Chip 
+                                label={`${((total / analysisResult.cost_estimates.reduce((s, c) => s + c.estimated_monthly_cost, 0)) * 100).toFixed(1)}% of total`}
+                                size="small"
+                                variant="outlined"
+                                sx={{ mb: 1.5 }}
+                            />
+                            
+                            <Divider sx={{ my: 1 }} />
+                            
+                            {/* Service Breakdown Table */}
+                            <Typography variant="subtitle2" gutterBottom>
+                                Services ({Object.keys(breakdown).length}):
+                            </Typography>
+                            <TableContainer component={Paper} variant="outlined" sx={{ mb: 1, maxHeight: 300 }}>
+                                <Table size="small" stickyHeader>
+                                    <TableHead>
+                                        <TableRow sx={{ bgcolor: '#f5f5f5' }}>
+                                            <TableCell>Service</TableCell>
+                                            <TableCell align="right">Cost</TableCell>
+                                            <TableCell align="right">%</TableCell>
+                                        </TableRow>
+                                    </TableHead>
+                                    <TableBody>
+                                        {Object.entries(breakdown).map(([category, serviceCost]) => {
+                                            const servicePercent = (serviceCost / total * 100).toFixed(1);
+                                            return (
+                                                <TableRow key={category}>
+                                                    <TableCell>
+                                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                            {getCategoryIcon(category)}
+                                                            <Typography variant="body2">{getCategoryDisplayName(category)}</Typography>
+                                                        </Box>
+                                                    </TableCell>
+                                                    <TableCell align="right">{fmt(serviceCost)}</TableCell>
+                                                    <TableCell align="right">
+                                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, justifyContent: 'flex-end' }}>
+                                                            <LinearProgress 
+                                                                variant="determinate" 
+                                                                value={Math.min(100, servicePercent)} 
+                                                                sx={{ width: 50, height: 4, borderRadius: 2 }}
+                                                            />
+                                                            <Typography variant="caption" color="text.secondary">{servicePercent}%</Typography>
+                                                        </Box>
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        })}
+                                    </TableBody>
+                                </Table>
+                            </TableContainer>
+                            
+                            {/* Cost Insights */}
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
+                                <Typography variant="caption" color="text.secondary">
+                                    Avg/Service: {fmt(Object.values(breakdown).reduce((a, b) => a + b, 0) / Math.max(Object.keys(breakdown).length, 1))}
+                                </Typography>
+                            </Box>
+                            
+                            {/* Savings Alert */}
+                            {cost.provider === cheapestProvider?.provider && savingsPercent > 0 && (
+                                <Alert severity="success" sx={{ mt: 1, py: 0, '& .MuiAlert-message': { py: 0.5 } }}>
+                                    💰 Saves {savingsPercent}% vs {mostExpensiveProvider?.provider} (${savingsAmount}/month)
+                                </Alert>
+                            )}
+                        </Paper>
+                    </Grid>
+                );
+            })}
+        </Grid>
+    </AccordionDetails>
+</Accordion>
+```
+
+What Changed
+
+Before After
+Volume badges repeated 3 times (once per provider) Volume badges once in Accordion summary
+Each provider card had duplicate volume info Cleaner, less cluttered provider cards
+More vertical space used Compact design
+
+Visual Layout After Change
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│  ▼ 💰 Cost Breakdown by Provider                    [Total: $5,230]                 │
+│     [HIGH Volume] [200% Scale] [📊 2.0M req] [💾 500 GB] [⚡ 730 hrs]               │
+├─────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                     │
+│  ┌─────────────────────┐ ┌─────────────────────┐ ┌─────────────────────┐           │
+│  │ AWS      [Best Value]│ │ Azure               │ │ GCP                 │           │
+│  │ $2,450/month        │ │ $1,850/month        │ │ $930/month          │           │
+│  │ 47% of total        │ │ 35% of total        │ │ 18% of total        │           │
+│  │ ─────────────────── │ │ ─────────────────── │ │ ─────────────────── │           │
+│  │ Services (8):       │ │ Services (7):       │ │ Services (6):       │           │
+│  │ • Compute    $850 35%│ │ • Compute    $720 39%│ │ • Compute    $380 41%│           │
+│  │ • Storage    $450 18%│ │ • Storage    $380 20%│ │ • Storage    $200 22%│           │
+│  │ • Database   $600 25%│ │ • Database   $480 26%│ │ • Database   $250 27%│           │
+│  │ ─────────────────── │ │ ─────────────────── │ │ ─────────────────── │           │
+│  │ Avg/Service: $306   │ │ Avg/Service: $264   │ │ Avg/Service: $155   │           │
+│  │ 💰 Saves 25% vs GCP │ │                     │ │                     │           │
+│  └─────────────────────┘ └─────────────────────┘ └─────────────────────┘           │
+│                                                                                     │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+Now the volume badges appear once at the top of the accordion, not repeated for each provider, making the UI much cleaner!
+
+xxxxx 
+a single accordion that contains all three providers side-by-side in a grid layout for easy comparison. That's much better for comparison!
 
 Single Accordion with 3 Providers Side-by-Side
 
