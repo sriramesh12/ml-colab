@@ -1,4 +1,224 @@
 
+
+
+xxxxx 
+
+You're absolutely right to question this! The current tooltip is static - it shows the same information for every service type regardless of what's actually being calculated. That's not helpful!
+
+Let me make it dynamic based on the actual service and provider:
+
+Dynamic Tooltip Based on Service Type and Provider
+
+```jsx
+// In ScenarioAnalyzerTab.jsx - Dynamic tooltip function
+
+const getServiceTooltip = (category, provider, volumeInfo, serviceCost) => {
+    // Common base values
+    const computeHours = volumeInfo?.compute_hours || 730;
+    const storageGB = volumeInfo?.storage_gb || 500;
+    const monthlyRequests = (volumeInfo?.monthly_requests || 2000000) / 1000000;
+    
+    // Provider-specific rates
+    const rates = {
+        AWS: {
+            compute: { rate: 0.096, unit: 'hour', instance: 'm5.large' },
+            storage: { rate: 0.023, unit: 'GB', tier: 'S3 Standard' },
+            database: { rate: 0.017, unit: 'hour', instance: 'db.t3.micro' },
+            cdn: { rate: 0.085, unit: 'GB', service: 'CloudFront' }
+        },
+        Azure: {
+            compute: { rate: 0.096, unit: 'hour', instance: 'D4s_v3' },
+            storage: { rate: 0.021, unit: 'GB', tier: 'Blob Hot' },
+            database: { rate: 0.016, unit: 'hour', instance: 'db.t3.micro' },
+            cdn: { rate: 0.081, unit: 'GB', service: 'Azure CDN' }
+        },
+        GCP: {
+            compute: { rate: 0.096, unit: 'hour', instance: 'n2-standard-4' },
+            storage: { rate: 0.020, unit: 'GB', tier: 'Cloud Storage Standard' },
+            database: { rate: 0.015, unit: 'hour', instance: 'db.t3.micro' },
+            cdn: { rate: 0.075, unit: 'GB', service: 'Cloud CDN' }
+        }
+    };
+    
+    const providerRates = rates[provider] || rates.AWS;
+    
+    // Determine service type
+    const categoryLower = category.toLowerCase();
+    
+    if (categoryLower.includes('compute') || categoryLower.includes('vm')) {
+        const rate = providerRates.compute;
+        const total = computeHours * rate.rate;
+        return {
+            title: 'Compute (VM) Pricing',
+            formula: `${computeHours.toLocaleString()} hours × $${rate.rate}/hour`,
+            rate: `$${rate.rate}/hour (${rate.instance})`,
+            model: 'On-Demand',
+            total: total,
+            note: 'Based on US East pricing'
+        };
+    }
+    
+    if (categoryLower.includes('storage')) {
+        const rate = providerRates.storage;
+        const total = storageGB * rate.rate;
+        return {
+            title: 'Storage Pricing',
+            formula: `${storageGB} GB × $${rate.rate}/GB`,
+            rate: `$${rate.rate}/GB (${rate.tier})`,
+            model: 'Usage-based',
+            total: total,
+            note: 'Based on US East pricing'
+        };
+    }
+    
+    if (categoryLower.includes('database')) {
+        const rate = providerRates.database;
+        const total = computeHours * rate.rate;
+        return {
+            title: 'Database Pricing',
+            formula: `${computeHours.toLocaleString()} hours × $${rate.rate}/hour`,
+            rate: `$${rate.rate}/hour (${rate.instance}) + storage`,
+            model: 'On-Demand',
+            total: total,
+            note: 'Storage billed separately'
+        };
+    }
+    
+    if (categoryLower.includes('cdn')) {
+        const rate = providerRates.cdn;
+        const total = storageGB * rate.rate;
+        return {
+            title: 'CDN Pricing',
+            formula: `${storageGB} GB × $${rate.rate}/GB`,
+            rate: `$${rate.rate}/GB (${rate.service})`,
+            model: 'Pay-as-you-go',
+            total: total,
+            note: 'Plus request charges'
+        };
+    }
+    
+    // Default fallback
+    return {
+        title: `${getCategoryDisplayName(category)} Pricing`,
+        formula: `${serviceCost} based on estimated usage`,
+        rate: 'Standard cloud rate',
+        model: 'Standard',
+        total: serviceCost,
+        note: 'Estimated pricing'
+    };
+};
+```
+
+Updated Tooltip Usage
+
+```jsx
+// Inside the TableRow, replace the tooltip with dynamic version
+const tooltipInfo = getServiceTooltip(category, provider, volumeInfo, serviceCost);
+
+return (
+    <TableRow key={category}>
+        <TableCell>
+            <Tooltip 
+                title={
+                    <Box sx={{ p: 0.5, minWidth: 220 }}>
+                        <Typography variant="caption" display="block" fontWeight="bold">
+                            {tooltipInfo.title}
+                        </Typography>
+                        <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                            <strong>Formula:</strong> {tooltipInfo.formula}
+                        </Typography>
+                        <Typography variant="caption" display="block">
+                            <strong>Rate:</strong> {tooltipInfo.rate}
+                        </Typography>
+                        <Typography variant="caption" display="block">
+                            <strong>Model:</strong> {tooltipInfo.model}
+                        </Typography>
+                        <Divider sx={{ my: 0.5 }} />
+                        <Typography variant="caption" display="block" sx={{ color: '#4caf50' }}>
+                            = ${tooltipInfo.total.toFixed(2)}/month
+                        </Typography>
+                        <Typography variant="caption" display="block" sx={{ mt: 0.5, color: '#999', fontSize: '10px' }}>
+                            {tooltipInfo.note}
+                        </Typography>
+                    </Box>
+                }
+                arrow
+                placement="right"
+            >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, cursor: 'help' }}>
+                    {getCategoryIcon(category)}
+                    <Typography variant="body2" sx={{ borderBottom: '1px dashed #999' }}>
+                        {getCategoryDisplayName(category)}
+                    </Typography>
+                </Box>
+            </Tooltip>
+        </TableCell>
+        <TableCell align="right">{fmt(serviceCost)}</TableCell>
+        <TableCell align="right">
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, justifyContent: 'flex-end' }}>
+                <LinearProgress 
+                    variant="determinate" 
+                    value={Math.min(100, servicePercent)} 
+                    sx={{ width: 50, height: 4, borderRadius: 2 }}
+                />
+                <Typography variant="caption" color="text.secondary">{servicePercent}%</Typography>
+            </Box>
+        </TableCell>
+    </TableRow>
+);
+```
+
+What Changes Dynamically
+
+Service Formula Changes Rate Changes Model Changes
+Compute Hours × $0.096 $0.096/hour (instance type) On-Demand
+Storage GB × $0.023 $0.023/GB (S3/Blob/GCS) Usage-based
+Database Hours × $0.017 $0.017/hour + storage On-Demand
+CDN GB × $0.085 $0.085/GB (CloudFront/Azure CDN) Pay-as-you-go
+Provider-specific Different per cloud Shows AWS vs Azure vs GCP names Consistent
+
+Example Tooltips for Different Services
+
+Compute (AWS):
+
+```
+┌─────────────────────────────────────┐
+│ Compute (VM) Pricing                │
+│ Formula: 730 hours × $0.096/hour    │
+│ Rate: $0.096/hour (m5.large)        │
+│ Model: On-Demand                    │
+│ = $70.08/month                      │
+│ Based on US East pricing            │
+└─────────────────────────────────────┘
+```
+
+Storage (Azure):
+
+```
+┌─────────────────────────────────────┐
+│ Storage Pricing                     │
+│ Formula: 500 GB × $0.021/GB         │
+│ Rate: $0.021/GB (Blob Hot)          │
+│ Model: Usage-based                  │
+│ = $10.50/month                      │
+│ Based on US East pricing            │
+└─────────────────────────────────────┘
+```
+
+CDN (GCP):
+
+```
+┌─────────────────────────────────────┐
+│ CDN Pricing                         │
+│ Formula: 500 GB × $0.075/GB         │
+│ Rate: $0.075/GB (Cloud CDN)         │
+│ Model: Pay-as-you-go                │
+│ = $37.50/month                      │
+│ Based on US East pricing            │
+└─────────────────────────────────────┘
+```
+
+Now the tooltip shows different information for each service type and each provider!
 xxxxx 
 Yes! Tooltip on individual service component (each row in the service breakdown table) is much more useful because:
 
